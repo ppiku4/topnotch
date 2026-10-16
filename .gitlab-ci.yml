@@ -1,0 +1,71 @@
+# Windows packages are retained as job artifacts; version tags also publish a GitLab release.
+stages: [build]
+
+workflow:
+  rules:
+    - if: '$CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/'
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH && $CI_OPEN_MERGE_REQUESTS && $CI_PIPELINE_SOURCE == "push"'
+      when: never
+    - if: '$CI_COMMIT_BRANCH'
+
+windows:
+  stage: build
+  tags: [saas-windows-medium-amd64]
+  timeout: 1h
+  variables:
+    CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+  script:
+    - |
+      $ErrorActionPreference = 'Stop'
+      # Pin Node independently of the hosted Windows image.
+      $nodeVersion = '22.16.0'
+      $archive = "node-v$nodeVersion-win-x64.zip"
+      $base = "https://nodejs.org/dist/v$nodeVersion"
+      Invoke-WebRequest "$base/$archive" -OutFile "$env:TEMP/$archive"
+      $checksums = (Invoke-WebRequest "$base/SHASUMS256.txt").Content
+      $expected = (($checksums -split "`n" | Where-Object { $_.Trim().EndsWith("  $archive") }) -split '\s+')[0]
+      if (!$expected -or (Get-FileHash "$env:TEMP/$archive" -Algorithm SHA256).Hash -ne $expected) { throw 'Node checksum mismatch' }
+      Expand-Archive "$env:TEMP/$archive" -DestinationPath "$env:TEMP/topnotch-node" -Force
+      $env:PATH = "$env:TEMP/topnotch-node/node-v$nodeVersion-win-x64;$env:PATH"
+      $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
+      if ($env:CI_COMMIT_TAG -and $env:CI_COMMIT_TAG -ne "v$version") { throw 'Release tag must match package.json version' }
+      npm.cmd ci --no-audit --no-fund
+      if ($LASTEXITCODE -ne 0) { throw 'npm ci failed' }
+      npm.cmd run build
+      if ($LASTEXITCODE -ne 0) { throw 'Build failed' }
+      npx.cmd --no-install electron-builder --win --publish never
+      if ($LASTEXITCODE -ne 0) { throw 'Windows packaging failed' }
+    - |
+      if ($env:CI_COMMIT_TAG) {
+        $headers = @{ 'JOB-TOKEN' = $env:CI_JOB_TOKEN }
+        $projectApi = "$env:CI_API_V4_URL/projects/$env:CI_PROJECT_ID"
+        $files = @(Get-ChildItem release -File | Where-Object { $_.Extension -in '.exe', '.blockmap' -or $_.Name -eq 'latest.yml' })
+        if (@($files | Where-Object Extension -eq '.exe').Count -lt 2) { throw 'Installer or portable executable missing' }
+        $links = @()
+        foreach ($file in $files) {
+          $filename = [uri]::EscapeDataString($file.Name)
+          $url = "$projectApi/packages/generic/topnotch/$version/$filename"
+          Invoke-RestMethod -Method Put -Uri $url -Headers $headers -InFile $file.FullName -ContentType 'application/octet-stream' | Out-Null
+          $links += @{ name = $file.Name; url = $url; link_type = 'package' }
+        }
+        $body = @{
+          name = "TopNotch $env:CI_COMMIT_TAG"
+          tag_name = $env:CI_COMMIT_TAG
+          description = "Windows x64 installer and portable app built from $env:CI_COMMIT_SHA. In-app updates currently use the GitHub upstream."
+          assets = @{ links = $links }
+        } | ConvertTo-Json -Depth 6
+        $releaseUrl = "$projectApi/releases/$([uri]::EscapeDataString($env:CI_COMMIT_TAG))"
+        $existing = $null
+        try { $existing = Invoke-RestMethod -Uri $releaseUrl -Headers $headers }
+        catch { if ([int]$_.Exception.Response.StatusCode -ne 404) { throw } }
+        if ($existing) { throw 'Release already exists; publish a new version tag instead of replacing it' }
+        Invoke-RestMethod -Method Post -Uri "$projectApi/releases" -Headers $headers -ContentType 'application/json' -Body $body | Out-Null
+      }
+  artifacts:
+    name: 'topnotch-windows-$CI_COMMIT_REF_SLUG'
+    expire_in: 30 days
+    paths:
+      - release/*.exe
+      - release/*.blockmap
+      - release/latest.yml
