@@ -1,0 +1,95 @@
+{
+  "name": "topnotch",
+  "productName": "TopNotch",
+  "version": "0.1.0",
+  "description": "A Dynamic Island for Windows: media, synced lyrics, system stats and quick controls in a notch at the top of your screen.",
+  "license": "MIT",
+  "author": "TopNotch contributors",
+  "homepage": "https://github.com/ppiku4/topnotch#readme",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ppiku4/topnotch.git"
+  },
+  "bugs": {
+    "url": "https://github.com/ppiku4/topnotch/issues"
+  },
+  "private": true,
+  "main": "electron/main.cjs",
+  "scripts": {
+    "dev": "concurrently -k -n vite,electron \"vite\" \"wait-on tcp:127.0.0.1:5173 && cross-env TOPNOTCH_DEV=1 electron .\"",
+    "build": "vite build",
+    "start": "vite build && electron .",
+    "dist": "vite build && electron-builder --win",
+    "dist:dir": "vite build && electron-builder --win --dir"
+  },
+  "dependencies": {
+    "@coooookies/windows-smtc-monitor": "^1.0.12",
+    "framer-motion": "^11.18.2",
+    "koffi": "^2.9.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.4",
+    "concurrently": "^9.1.0",
+    "cross-env": "^7.0.3",
+    "electron": "^33.2.1",
+    "electron-builder": "^25.1.8",
+    "vite": "^5.4.11",
+    "wait-on": "^8.0.1"
+  },
+  "allowScripts": {
+    "electron@33.2.1": true,
+    "esbuild@0.21.5": true
+  },
+  "build": {
+    "appId": "com.topnotch.app",
+    "productName": "TopNotch",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**",
+      "electron/**",
+      "assets/**",
+      "package.json",
+      "!node_modules/koffi/build/koffi/!(win32_x64)/**",
+      "!node_modules/koffi/src/**",
+      "!node_modules/koffi/doc/**"
+    ],
+    "asarUnpack": [
+      "electron/system-helper.cs",
+      "electron/system-helper.ps1",
+      "**/*.node"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "assets/icon.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "ppiku4",
+        "repo": "topnotch"
+      }
+    ]
+  }
+}

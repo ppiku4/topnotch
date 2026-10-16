@@ -1,0 +1,13 @@
+# Dependencies and build output
+node_modules/
+dist/
+release/
+out/
+
+# Logs and local files
+*.log
+.DS_Store
+Thumbs.db
+
+# Private notes, not for publishing
+SMART_NOTCH_TEARDOWN.md

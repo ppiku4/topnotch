@@ -1,0 +1,40 @@
+# Builds the Windows installer and portable exe. Pushing a tag like v0.2.0
+# publishes them to a GitHub Release (the in-app update check reads it).
+name: Build
+
+on:
+  push:
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      - name: Build
+        run: npx vite build
+
+      - name: Package (publish on tags)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npx electron-builder --win ${{ startsWith(github.ref, 'refs/tags/v') && '--publish always' || '--publish never' }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: topnotch-windows
+          path: |
+            release/*.exe
+            release/latest.yml

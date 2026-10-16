@@ -1,0 +1,101 @@
+const fs = require('fs');
+const path = require('path');
+const crypto = require('crypto');
+const { clipboard, nativeImage } = require('electron');
+
+const MAX_ITEMS = 30;
+const POLL_MS = 800;
+
+// Polls the system clipboard and keeps a short history. Text survives
+// restarts (clipboard.json); images live in memory only.
+function createClipboardHistory({ dir, onChange }) {
+  const file = path.join(dir, 'clipboard.json');
+  let items = [];
+  try { items = JSON.parse(fs.readFileSync(file, 'utf8')).filter((i) => i.type === 'text'); } catch (_) {}
+  const images = new Map(); // id -> full PNG buffer
+  let lastKey = null;
+  let timer = null;
+
+  const save = () => {
+    try { fs.writeFileSync(file, JSON.stringify(items.filter((i) => i.type === 'text'))); } catch (_) {}
+  };
+  const publish = () => { save(); onChange(list()); };
+  const list = () => items.map(({ id, type, text, thumb, time, pinned }) => ({ id, type, text, thumb, time, pinned }));
+
+  function add(item, key) {
+    const existing = items.findIndex((i) => i.key === key);
+    if (existing >= 0) {
+      const [old] = items.splice(existing, 1);
+      items.unshift({ ...old, time: Date.now() });
+    } else {
+      items.unshift({ ...item, key, id: crypto.randomUUID(), time: Date.now(), pinned: false });
+    }
+    // Pinned items never fall off the end.
+    while (items.length > MAX_ITEMS) {
+      const index = items.map((i) => i.pinned).lastIndexOf(false);
+      if (index < 0) break;
+      const [removed] = items.splice(index, 1);
+      images.delete(removed.id);
+    }
+    publish();
+  }
+
+  function poll() {
+    const formats = clipboard.availableFormats();
+    if (formats.some((f) => f.startsWith('image/'))) {
+      const image = clipboard.readImage();
+      if (image.isEmpty()) return;
+      const png = image.toPNG();
+      const key = 'img:' + crypto.createHash('sha1').update(png).digest('hex');
+      if (key === lastKey) return;
+      lastKey = key;
+      const size = image.getSize();
+      const thumb = image.resize(size.width > size.height ? { width: 160 } : { height: 100 }).toDataURL();
+      add({ type: 'image', text: `${size.width}×${size.height}`, thumb }, key);
+      const item = items.find((i) => i.key === key);
+      if (item) images.set(item.id, png);
+      return;
+    }
+    const text = clipboard.readText();
+    if (!text || !text.trim()) return;
+    const key = 'txt:' + crypto.createHash('sha1').update(text).digest('hex');
+    if (key === lastKey) return;
+    lastKey = key;
+    add({ type: 'text', text: text.slice(0, 5000) }, key);
+  }
+
+  return {
+    start() { if (!timer) { lastKey = null; poll(); timer = setInterval(() => { try { poll(); } catch (_) {} }, POLL_MS); } },
+    stop() { clearInterval(timer); timer = null; },
+    list,
+    copy(id) {
+      const item = items.find((i) => i.id === id);
+      if (!item) return;
+      if (item.type === 'image') {
+        const png = images.get(id);
+        if (!png) return;
+        clipboard.writeImage(nativeImage.createFromBuffer(png));
+      } else {
+        clipboard.writeText(item.text);
+      }
+      lastKey = item.key;
+      add(item, item.key);
+    },
+    togglePin(id) {
+      const item = items.find((i) => i.id === id);
+      if (item) { item.pinned = !item.pinned; publish(); }
+    },
+    remove(id) {
+      items = items.filter((i) => i.id !== id);
+      images.delete(id);
+      publish();
+    },
+    clear() {
+      items = items.filter((i) => i.pinned);
+      for (const id of [...images.keys()]) if (!items.some((i) => i.id === id)) images.delete(id);
+      publish();
+    }
+  };
+}
+
+module.exports = { createClipboardHistory };

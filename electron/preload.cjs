@@ -1,0 +1,75 @@
+const { contextBridge, ipcRenderer, webUtils } = require('electron');
+
+function subscribe(channel, callback) {
+  const listener = (_event, payload) => callback(payload);
+  ipcRenderer.on(channel, listener);
+  return () => ipcRenderer.removeListener(channel, listener);
+}
+
+// Explicit methods only: the renderer never gets a raw send/invoke.
+contextBridge.exposeInMainWorld('topnotch', {
+  setPassthrough: (passthrough) => ipcRenderer.send('set-passthrough', !!passthrough),
+
+  mediaControl: (action) => ipcRenderer.send('media-control', action),
+  seek: (seconds) => ipcRenderer.send('media-seek', Number(seconds)),
+  onMediaState: (callback) => subscribe('media-state', callback),
+  onLyrics: (callback) => subscribe('lyrics', callback),
+
+  setVolume: (value) => ipcRenderer.send('set-volume', Number(value)),
+  toggleMute: () => ipcRenderer.send('toggle-mute'),
+  setBrightness: (value) => ipcRenderer.send('set-brightness', Number(value)),
+  onSystemLevels: (callback) => subscribe('system-levels', callback),
+
+  onPrivacy: (callback) => subscribe('privacy', callback),
+  onBluetooth: (callback) => subscribe('bluetooth', callback),
+
+  setStatsVisible: (on) => ipcRenderer.send('stats-visible', !!on),
+  onStats: (callback) => subscribe('stats', callback),
+  setMixerVisible: (on) => ipcRenderer.send('mixer-visible', !!on),
+  onMixer: (callback) => subscribe('mixer', callback),
+  setAppVolume: (pid, value) => ipcRenderer.send('app-volume', Number(pid), Number(value)),
+  toggleAppMute: (pid) => ipcRenderer.send('app-mute', Number(pid)),
+  onBluetoothDevices: (callback) => subscribe('bluetooth-devices', callback),
+  onWeather: (callback) => subscribe('weather', callback),
+  quickTool: (name) => ipcRenderer.send('quick-tool', String(name)),
+
+  onClipboard: (callback) => subscribe('clipboard', callback),
+  copyClip: (id) => ipcRenderer.send('clipboard-copy', String(id)),
+  pinClip: (id) => ipcRenderer.send('clipboard-pin', String(id)),
+  removeClip: (id) => ipcRenderer.send('clipboard-remove', String(id)),
+  clearClipboard: () => ipcRenderer.send('clipboard-clear'),
+
+  onShelf: (callback) => subscribe('shelf', callback),
+  onDragNear: (callback) => subscribe('drag-near', callback),
+  pathForFile: (file) => { try { return webUtils.getPathForFile(file); } catch (_) { return ''; } },
+  addToShelf: (paths) => ipcRenderer.send('shelf-add', paths.map(String)),
+  removeFromShelf: (p) => ipcRenderer.send('shelf-remove', String(p)),
+  clearShelf: () => ipcRenderer.send('shelf-clear'),
+  dragFromShelf: (paths) => ipcRenderer.send('shelf-drag', paths.map(String)),
+
+  notify: (title, body) => ipcRenderer.send('notify', { title: String(title), body: String(body) }),
+
+  getConfig: () => ipcRenderer.invoke('config-get'),
+  setConfig: (patch) => ipcRenderer.send('config-set', patch),
+  onConfig: (callback) => subscribe('config', callback),
+  getDisplays: () => ipcRenderer.invoke('displays-get'),
+  openSettings: () => ipcRenderer.send('open-settings'),
+
+  onOpenPanel: (callback) => subscribe('open-panel', callback),
+  onCovered: (callback) => subscribe('covered', callback),
+  reportIslandShape: (rect) => ipcRenderer.send('island-shape', rect),
+  onGlassShapeRequest: (callback) => subscribe('glass-shape-request', callback),
+  setMeter: (on) => ipcRenderer.send('meter', !!on),
+  onPeak: (callback) => subscribe('peak', callback),
+  resyncLyrics: () => ipcRenderer.send('lyrics-resync'),
+  closeSettings: () => ipcRenderer.send('settings-close'),
+  getAppInfo: () => ipcRenderer.invoke('app-info'),
+  openFolder: (which) => ipcRenderer.send('open-folder', String(which)),
+  checkForUpdate: () => ipcRenderer.invoke('update-check'),
+  openRelease: (url) => ipcRenderer.send('open-release', String(url)),
+  sensorsStatus: () => ipcRenderer.invoke('sensors-status'),
+  installSensors: () => ipcRenderer.invoke('sensors-install'),
+  startSensors: () => ipcRenderer.invoke('sensors-start'),
+  setSensorsAtSignIn: (on) => ipcRenderer.invoke('sensors-at-sign-in', !!on),
+  onWindowBlur: (callback) => subscribe('window-blur', callback)
+});
