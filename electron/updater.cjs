@@ -61,7 +61,10 @@ function createInstaller({ app, shell, log, onProgress }) {
     try {
       onProgress({ phase: 'checking' });
       const result = await autoUpdater.checkForUpdates();
-      if (!result?.isUpdateAvailable) return { status: 'current' };
+      // Compare versions directly: older electron-updater releases don't
+      // return isUpdateAvailable.
+      const latest = result?.updateInfo?.version;
+      if (!latest || !isNewer(latest, app.getVersion())) return { status: 'current' };
       onProgress({ phase: 'downloading', percent: 0 });
       await autoUpdater.downloadUpdate();
       onProgress({ phase: 'installing', version: result.updateInfo.version });
