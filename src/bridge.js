@@ -22,6 +22,7 @@ export const bridge = window.topnotch ?? {
   toggleAppMute: log('app mute'),
   onBluetoothDevices: off,
   onWeather: off,
+  getWeather: async () => null,
   quickTool: log('tool'),
   onClipboard: off,
   copyClip: log('copy'),

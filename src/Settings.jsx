@@ -3,6 +3,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { bridge } from './bridge.js';
 import { useConfig } from './hooks.js';
 import { SPRING_SNAPPY, SPRING_SOFT } from './motion.js';
+import InfoRow from './InfoRow.jsx';
 import {
   BluetoothIcon, BoltIcon, BookIcon, ClockIcon, CameraIcon, ClipboardIcon, CloseIcon, CoffeeIcon, ExpandIcon, FolderIcon, GlowIcon,
   GridIcon, InfoIcon, LayersIcon, LyricsIcon, MonitorIcon, MusicIcon, PaletteIcon, PinIcon, PointerIcon, PulseIcon,
@@ -168,9 +169,55 @@ function General({ config }) {
   );
 }
 
+// A live pill using the current settings and real weather.
+function ClockPreview({ config }) {
+  const [weather, setWeather] = useState(null);
+  useEffect(() => {
+    bridge.getWeather().then((w) => w && setWeather(w));
+    return bridge.onWeather(setWeather);
+  }, []);
+  return (
+    <div className="clock-preview">
+      <div className="clock-preview-pill">
+        <InfoRow weather={config.features.weather !== false ? weather : null} config={config} />
+      </div>
+    </div>
+  );
+}
+
+function ClockWeather({ config }) {
+  return (
+    <Group title="Clock & weather" aside="Pill when nothing is playing">
+      <ClockPreview config={config} />
+      <Row icon={ClockIcon} title="Time format">
+        <Segmented id="clockFormat" value={config.clockFormat || 'system'} onChange={(v) => set({ clockFormat: v })} options={[['system', 'System'], ['12h', '12-hour'], ['24h', '24-hour']]} />
+      </Row>
+      <Row icon={ClockIcon} title="Show seconds">
+        <Toggle checked={!!config.clockSeconds} onChange={(v) => set({ clockSeconds: v })} />
+      </Row>
+      <Row icon={BookIcon} title="Date">
+        <Segmented id="clockDate" value={config.clockDate || 'full'} onChange={(v) => set({ clockDate: v })} options={[['full', 'Day & date'], ['weekday', 'Weekday'], ['off', 'Off']]} />
+      </Row>
+      <Row icon={ClockIcon} title="Clock style">
+        <Segmented id="clockStyle" value={config.clockStyle || 'regular'} onChange={(v) => set({ clockStyle: v })} options={[['regular', 'Regular'], ['bold', 'Bold'], ['mono', 'Mono'], ['thin', 'Thin']]} />
+      </Row>
+      <Row icon={PaletteIcon} title="Clock colour">
+        <Segmented id="clockColor" value={config.clockColor || 'white'} onChange={(v) => set({ clockColor: v })} options={[['white', 'White'], ['accent', 'Accent']]} />
+      </Row>
+      <Row icon={WeatherIcon} title="Weather" sub={config.features.weather === false ? 'Weather is off in Widgets.' : undefined} disabled={config.features.weather === false}>
+        <Segmented id="weatherShow" value={config.weatherShow || 'icon-temp'} onChange={(v) => set({ weatherShow: v })} options={[['icon-temp', 'Icon + temp'], ['temp', 'Temp only'], ['detailed', 'Detailed']]} />
+      </Row>
+      <Row icon={PaletteIcon} title="Weather colour" disabled={config.features.weather === false}>
+        <Segmented id="weatherColor" value={config.weatherColor || 'white'} onChange={(v) => set({ weatherColor: v })} options={[['white', 'White'], ['accent', 'Accent'], ['weather', 'By weather']]} />
+      </Row>
+    </Group>
+  );
+}
+
 function Appearance({ config }) {
   const accent = config.accent || 'album';
   return (
+    <>
     <Group title="Colour & shape">
       <Row icon={PaletteIcon} title="Accent" sub="Lyrics edge, bars, highlights and glow.">
         <div className="swatches">
@@ -190,6 +237,8 @@ function Appearance({ config }) {
         <Segmented id="material" value={config.material || 'solid'} onChange={(v) => set({ material: v })} options={[['solid', 'Solid'], ['glass', 'Dark glass']]} />
       </Row>
     </Group>
+    <ClockWeather config={config} />
+    </>
   );
 }
 
@@ -280,6 +329,15 @@ function About() {
         <h2>TopNotch</h2>
         <div className="row-sub">Version {info?.version ?? '…'} · Dynamic Island for Windows</div>
         <p>Media, lyrics, system stats, Bluetooth and quick controls in a notch at the top of your screen.</p>
+      </div>
+      <div className="disclaimer" role="note">
+        <div className="disclaimer-title">Vibe-coded app · use at your own risk</div>
+        <p>
+          TopNotch was built mostly by prompting an AI coding assistant, not written and reviewed line by line.
+          It's provided as is, without warranty of any kind. The developer is not responsible for anything that
+          happens from using it, including crashes, data loss, damage to your system or hardware, and security or
+          privacy issues.
+        </p>
       </div>
       <Group title="Updates">
         <UpdateRow />

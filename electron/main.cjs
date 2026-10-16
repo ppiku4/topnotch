@@ -620,6 +620,7 @@ ipcMain.on('notify', (event, payload) => {
 
 ipcMain.handle('config-get', (event) => (fromOurWindows(event) ? config.get() : null));
 ipcMain.on('config-set', (event, patch) => { if (fromOurWindows(event)) config.set(sanitizePatch(patch)); });
+ipcMain.handle('weather-get', (event) => (fromOurWindows(event) ? lastWeather : null));
 ipcMain.handle('displays-get', (event) => {
   if (!fromOurWindows(event)) return [];
   const primary = screen.getPrimaryDisplay().id;
@@ -681,7 +682,7 @@ app.whenReady().then(() => {
   sensors = createSensors({ dir, log });
   weather = createWeather({
     getConfig: () => config.get(),
-    onChange: (data) => { lastWeather = data; send('weather', data); },
+    onChange: (data) => { lastWeather = data; broadcast('weather', data); },
     log
   });
   systemService = createSystemService({

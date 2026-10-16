@@ -4,6 +4,13 @@ A Dynamic Island for Windows. A small pill at the top of your screen that shows 
 
 Built with Electron, React, Vite and framer-motion. Windows 10 (1809) or later; some effects need Windows 11.
 
+> [!WARNING]
+> **This is a vibe-coded app.** It was built mostly by prompting an AI coding assistant, not written and reviewed line by line, so expect rough edges.
+>
+> It's provided **as is, without warranty of any kind**. **The developer is not responsible for anything** that happens from using it, including crashes, data loss, damage to your system or hardware, security or privacy issues, or anything else.
+>
+> Some features run with extra rights or change system settings: volume, brightness, per-app audio, and optionally LibreHardwareMonitor as administrator plus a sign-in scheduled task. **Use it at your own risk.**
+
 <!-- Add a screenshot or short GIF here, e.g. docs/screenshot.png -->
 
 ## Features
@@ -89,6 +96,10 @@ Before publishing:
 TopNotch runs locally. The only network requests are listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md#online-services), each tied to a feature you can switch off.
 
 Clipboard history text is saved to `%APPDATA%\topnotch\clipboard.json`. Turn it off in Settings if you copy passwords.
+
+## Disclaimer
+
+TopNotch is a vibe-coded hobby project, provided as is and without warranty. The developer accepts no responsibility or liability for any damage, loss or problem arising from its use. See the [license](LICENSE) for the full terms.
 
 ## License
 

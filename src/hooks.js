@@ -270,17 +270,18 @@ export function useBattery() {
   return battery;
 }
 
-// Current time, re-rendering on each minute boundary.
-export function useClock() {
+// Current time, re-rendering on each minute (or second) boundary.
+export function useClock(everySecond = false) {
   const [now, setNow] = useState(() => new Date());
   useEffect(() => {
     let timer;
+    const step = everySecond ? 1000 : 60000;
     const schedule = () => {
-      const msToMinute = 60000 - (Date.now() % 60000) + 50;
-      timer = setTimeout(() => { setNow(new Date()); schedule(); }, msToMinute);
+      timer = setTimeout(() => { setNow(new Date()); schedule(); }, step - (Date.now() % step) + 30);
     };
+    setNow(new Date());
     schedule();
     return () => clearTimeout(timer);
-  }, []);
+  }, [everySecond]);
   return now;
 }

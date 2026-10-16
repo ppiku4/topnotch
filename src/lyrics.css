@@ -26,10 +26,18 @@
     translateY(calc(var(--p) * -2px - var(--a) * (1px + var(--h) * 1.5px)))
     scale(calc(1 + var(--a) * (0.04 + var(--h) * 0.06)));
   transform-origin: 50% 85%;
+  /* Words of a new line fade up one after another (translate composes with
+     the transform above). */
+  animation: word-in 0.42s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation-delay: calc(var(--i, 0) * 24ms);
   filter: drop-shadow(0 0 calc(var(--g) * var(--glow-size, 9px)) rgba(255, 255, 255, calc(var(--g) * 0.75)));
   will-change: transform, filter;
 }
 .w:last-child { margin-right: 0; }
+@keyframes word-in {
+  from { opacity: 0; translate: 0 5px; }
+  to { opacity: 1; translate: 0 0; }
+}
 
 .lyric-dots { --p: 0; display: inline-flex; gap: 5px; align-items: center; height: 1em; }
 .lyric-dots i {
@@ -71,7 +79,7 @@
   word-spacing: 0.05em;
   pointer-events: none;
 }
-.lyric-track { display: inline-block; white-space: nowrap; transition: transform 0.5s cubic-bezier(0.25, 1, 0.5, 1); }
+.lyric-track { display: inline-block; white-space: nowrap; transition: transform 0.7s cubic-bezier(0.22, 1, 0.36, 1); }
 
 /* Music tab: scrolling list. */
 .lyrics-list {

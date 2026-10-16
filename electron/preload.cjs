@@ -31,6 +31,7 @@ contextBridge.exposeInMainWorld('topnotch', {
   toggleAppMute: (pid) => ipcRenderer.send('app-mute', Number(pid)),
   onBluetoothDevices: (callback) => subscribe('bluetooth-devices', callback),
   onWeather: (callback) => subscribe('weather', callback),
+  getWeather: () => ipcRenderer.invoke('weather-get'),
   quickTool: (name) => ipcRenderer.send('quick-tool', String(name)),
 
   onClipboard: (callback) => subscribe('clipboard', callback),

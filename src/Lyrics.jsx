@@ -113,7 +113,9 @@ function paintWords(elements, words, position) {
     const el = elements[i];
     if (!el) continue;
     const w = words[i];
-    const p = clamp01((position - w.start) / (w.end - w.start));
+    const linear = clamp01((position - w.start) / (w.end - w.start));
+    // Ease-in-out so the colour eases into and out of each word.
+    const p = linear * linear * (3 - 2 * linear);
     const held = clamp01((w.end - w.start - 0.45) / 1.0);
     const hold = position < w.start ? 0
       : position <= w.end ? easeOut(clamp01((position - w.start) / 0.12))
@@ -132,6 +134,8 @@ function paintWords(elements, words, position) {
 
 const easeOut = (t) => 1 - (1 - t) * (1 - t) * (1 - t);
 
+const LEAD_IN = 0.08;
+
 // Calls onFrame(position) every animation frame while playing, once otherwise.
 function useLyricClock(media, seekedTo, onFrame) {
   useLoudness();
@@ -141,7 +145,9 @@ function useLyricClock(media, seekedTo, onFrame) {
     let frame = 0;
     const tick = () => {
       const { media: m, seekedTo: s, onFrame: f } = latest.current;
-      f(currentPosition(m, s));
+      // Light words ~80 ms early: by the time the frame reaches the screen
+      // the singer has started the word.
+      f(currentPosition(m, s) + LEAD_IN);
       if (m?.playing) frame = requestAnimationFrame(tick);
     };
     tick();
@@ -153,10 +159,12 @@ function Dots({ dotsRef }) {
   return <span className="lyric-dots" ref={dotsRef} aria-label="Instrumental"><i /><i /><i /></span>;
 }
 
+// Lines rise in (their words then fade up one by one in CSS) and drift up
+// and out a little faster, so the next line is never waiting on the old one.
 const LINE_MOTION = {
-  initial: { opacity: 0, y: 12, scale: 0.97, filter: 'blur(6px)' },
+  initial: { opacity: 0, y: 10, scale: 0.98, filter: 'blur(4px)' },
   animate: { opacity: 1, y: 0, scale: 1, filter: 'blur(0px)' },
-  exit: { opacity: 0, y: -12, scale: 0.97, filter: 'blur(6px)' }
+  exit: { opacity: 0, y: -10, scale: 0.98, filter: 'blur(4px)', transition: { duration: 0.22, ease: [0.4, 0, 1, 1] } }
 };
 
 // ── Pill: one line, reports its natural width so the pill can fit it ─────
@@ -205,7 +213,7 @@ export function PillLyrics({ lines, media, onWidth }) {
           {isBreak ? <Dots dotsRef={keep('dots')} /> : (
             <span className="lyric-track" ref={keep('track')}>
               {words.map((w, i) => (
-                <span key={i} className="w" ref={(el) => { if (el) els.current.words[i] = el; }}>{w.text}</span>
+                <span key={i} className="w" style={{ '--i': i }} ref={(el) => { if (el) els.current.words[i] = el; }}>{w.text}</span>
               ))}
             </span>
           )}
@@ -268,7 +276,7 @@ export function LyricsList({ lines, media, seekedTo, onSeek }) {
             >
               {current && !l.text && <Dots dotsRef={(el) => { if (el) dotsEl.current = el; }} />}
               {current && l.text && words.map((w, j) => (
-                <span key={j} className="w" ref={(el) => { if (el) wordEls.current[j] = el; }}>{w.text}</span>
+                <span key={j} className="w" style={{ '--i': j }} ref={(el) => { if (el) wordEls.current[j] = el; }}>{w.text}</span>
               ))}
               {!current && (l.text || '♪')}
             </div>

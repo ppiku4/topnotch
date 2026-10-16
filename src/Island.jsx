@@ -1,15 +1,16 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { bridge } from './bridge.js';
 import Activity from './Activities.jsx';
 import { PillLyrics } from './Lyrics.jsx';
+import InfoRow, { weatherColor } from './InfoRow.jsx';
 import { CONTENT, PRESS, SPRING_ISLAND, SPRING_SNAPPY, tabMotion } from './motion.js';
 import { Artwork, Bars, ClipboardTab, ShelfTab, StatsTab, TimerTab } from './Tabs.jsx';
 import { BluetoothTab, DashboardTab, MixerTab, MusicTab } from './Dashboard.jsx';
 import { useHoverPassthrough } from './useHoverPassthrough.js';
 import { useMedia } from './useMedia.js';
 import {
-  formatCountdown, playChime, useActivities, useClock, useArtColors, useBattery, useBatteryEvents, useBluetoothDevices, useClipboard,
+  formatCountdown, playChime, useActivities, useArtColors, useBattery, useBatteryEvents, useBluetoothDevices, useClipboard,
   useConfig, useDragNear, useLyrics, useMixer, usePrivacy, useShelf, useStats, useSystemLevels, useTimer, useWeather
 } from './hooks.js';
 import {
@@ -237,7 +238,7 @@ export default function Island() {
                 </div>
                 <span className="tab-spacer" />
                 {features.weather && weather && (
-                  <span className="status-chip" title={weather.place}>
+                  <span className="status-chip" title={weather.place} style={{ '--weather-color': weatherColor(weather, config.weatherColor) }}>
                     <WeatherIcon condition={weather.condition} isDay={weather.isDay} />{weather.temperature}{weather.unit}
                   </span>
                 )}
@@ -267,9 +268,9 @@ export default function Island() {
             </motion.div>
           )}
           {state === 'activity' && <Activity key={`activity-${activities.current.kind}`} activity={activities.current} levels={levels} hold={hold} />}
-          {state === 'info' && <InfoPill key="info" weather={features.weather ? weather : null} onWidth={onInfoWidth} />}
+          {state === 'info' && <InfoPill key="info" weather={features.weather ? weather : null} config={config} onWidth={onInfoWidth} />}
           {state === 'compact' && (
-            <Compact key="compact" media={media} lyrics={pillLyrics} onLyricsWidth={onPillWidth} info={compactInfo} onInfoWidth={onInfoWidth} privacy={features.privacy ? privacy : null} timerState={timerRunning ? timerState : null} />
+            <Compact key="compact" media={media} lyrics={pillLyrics} onLyricsWidth={onPillWidth} info={compactInfo} onInfoWidth={onInfoWidth} config={config} privacy={features.privacy ? privacy : null} timerState={timerRunning ? timerState : null} />
           )}
         </AnimatePresence>
       </motion.div>
@@ -277,32 +278,11 @@ export default function Island() {
   );
 }
 
-// Day · time · weather, reporting its natural width so the pill can fit it.
-function InfoRow({ weather, onWidth }) {
-  const now = useClock();
-  const measure = useRef(null);
-  const day = now.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' });
-  const time = now.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
-  const temp = weather ? `${weather.temperature}${weather.unit}` : null;
-  useLayoutEffect(() => { if (measure.current) onWidth(measure.current.scrollWidth); }, [day, time, temp, onWidth]);
-  return (
-    <span className="info-row" ref={measure}>
-      <span className="info-day">{day}</span>
-      <span className="info-time">{time}</span>
-      {weather && (
-        <span className="info-weather" title={weather.place}>
-          <WeatherIcon condition={weather.condition} isDay={weather.isDay} />{temp}
-        </span>
-      )}
-    </span>
-  );
+function InfoPill({ weather, config, onWidth }) {
+  return <motion.div className="info-pill" {...CONTENT}><InfoRow weather={weather} config={config} onWidth={onWidth} /></motion.div>;
 }
 
-function InfoPill({ weather, onWidth }) {
-  return <motion.div className="info-pill" {...CONTENT}><InfoRow weather={weather} onWidth={onWidth} /></motion.div>;
-}
-
-function Compact({ media, lyrics, onLyricsWidth, info, onInfoWidth, privacy, timerState }) {
+function Compact({ media, lyrics, onLyricsWidth, info, onInfoWidth, config, privacy, timerState }) {
   const camera = privacy?.camera.length > 0;
   const mic = privacy?.microphone.length > 0;
   const call = privacy?.call;
@@ -318,7 +298,7 @@ function Compact({ media, lyrics, onLyricsWidth, info, onInfoWidth, privacy, tim
     <motion.div className={`compact${lyrics ? ' has-lyrics' : ''}`} {...CONTENT}>
       {left}
       {lyrics && <PillLyrics lines={lyrics} media={media} onWidth={onLyricsWidth} />}
-      {!lyrics && info && <span className="compact-info"><InfoRow weather={info.weather} onWidth={onInfoWidth} /></span>}
+      {!lyrics && info && <span className="compact-info"><InfoRow weather={info.weather} config={config} onWidth={onInfoWidth} /></span>}
       <span className="compact-right">
         {timerState
           ? <span className="compact-countdown">{formatCountdown(timerState.remaining)}</span>

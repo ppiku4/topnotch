@@ -14,6 +14,13 @@ const DEFAULTS = {
   edgeGlow: 'subtle',     // off | subtle | strong
   corners: 'rounded',     // rounded | squared
   material: 'solid',      // solid | glass
+  clockFormat: 'system',  // system | 12h | 24h
+  clockSeconds: false,
+  clockDate: 'full',      // full | weekday | off
+  clockStyle: 'regular',  // regular | bold | mono | thin
+  clockColor: 'white',    // white | accent
+  weatherShow: 'icon-temp', // icon-temp | temp | detailed
+  weatherColor: 'white',  // white | accent | weather
   features: {
     lyrics: true,
     pillLyrics: true,
@@ -63,7 +70,13 @@ function sanitizePatch(patch) {
   if (!patch || typeof patch !== 'object') return out;
   if (patch.displayId === null || typeof patch.displayId === 'number') out.displayId = patch.displayId;
   if (Number.isFinite(patch.scale)) out.scale = Math.max(0.8, Math.min(1.4, patch.scale));
-  for (const key of ['launchAtLogin', 'expandOnHover', 'keepOpen', 'hideBehindMaximized']) {
+  if (oneOf(patch.clockFormat, ['system', '12h', '24h'])) out.clockFormat = patch.clockFormat;
+  if (oneOf(patch.clockDate, ['full', 'weekday', 'off'])) out.clockDate = patch.clockDate;
+  if (oneOf(patch.clockStyle, ['regular', 'bold', 'mono', 'thin'])) out.clockStyle = patch.clockStyle;
+  if (oneOf(patch.clockColor, ['white', 'accent'])) out.clockColor = patch.clockColor;
+  if (oneOf(patch.weatherShow, ['icon-temp', 'temp', 'detailed'])) out.weatherShow = patch.weatherShow;
+  if (oneOf(patch.weatherColor, ['white', 'accent', 'weather'])) out.weatherColor = patch.weatherColor;
+  for (const key of ['launchAtLogin', 'expandOnHover', 'keepOpen', 'hideBehindMaximized', 'clockSeconds']) {
     if (typeof patch[key] === 'boolean') out[key] = patch[key];
   }
   if (typeof patch.weatherCity === 'string') out.weatherCity = patch.weatherCity.slice(0, 80);

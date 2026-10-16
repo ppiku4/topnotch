@@ -188,3 +188,30 @@ html.is-settings, html.is-settings body { background: #141416; }
 .row-error { color: var(--red); font-size: 12.5px; }
 .button-primary { background: var(--blue); border-color: var(--blue); color: #fff; }
 .button-primary:hover { background: #2a93ff; }
+
+.clock-preview {
+  display: flex;
+  justify-content: center;
+  padding: 18px 16px;
+  background: radial-gradient(120% 140% at 50% 0%, #2a2a33, #16161a);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+.clock-preview-pill {
+  display: flex;
+  align-items: center;
+  height: 32px;
+  padding: 0 18px;
+  border-radius: 0 0 16px 16px;
+  background: #000;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+}
+
+.disclaimer {
+  margin-bottom: 20px;
+  padding: 14px 16px;
+  border-radius: 14px;
+  background: rgba(255, 159, 10, 0.08);
+  border: 1px solid rgba(255, 159, 10, 0.35);
+}
+.disclaimer-title { font-size: 13.5px; font-weight: 650; color: #ffb340; }
+.disclaimer p { margin: 6px 0 0; font-size: 12.5px; line-height: 1.5; color: var(--text-dim); }
