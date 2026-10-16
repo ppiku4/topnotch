@@ -24,6 +24,7 @@
   },
   "dependencies": {
     "@coooookies/windows-smtc-monitor": "^1.0.12",
+    "electron-updater": "^6.3.9",
     "framer-motion": "^11.18.2",
     "koffi": "^2.9.0",
     "react": "^18.3.1",

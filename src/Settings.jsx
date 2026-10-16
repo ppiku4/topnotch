@@ -297,25 +297,80 @@ function Tips() {
 }
 
 function UpdateRow() {
-  const [state, setState] = useState(null);
+  const [state, setState] = useState(null);       // result of the GitHub check
+  const [mode, setMode] = useState({ selfInstall: false });
+  const [progress, setProgress] = useState(null); // { phase, percent }
+  const [result, setResult] = useState(null);     // result of install/download
   const [checking, setChecking] = useState(false);
+
+  useEffect(() => {
+    bridge.getUpdateMode().then((m) => m && setMode(m));
+    return bridge.onUpdateProgress(setProgress);
+  }, []);
+
   const check = async () => {
     setChecking(true);
+    setResult(null);
     setState(await bridge.checkForUpdate());
     setChecking(false);
   };
-  const sub = !state ? 'Look for a newer release on GitHub.'
-    : state.status === 'available' ? `Version ${state.latest} is available (you have ${state.current}).`
-    : state.status === 'current' ? `You're up to date (${state.current}).`
-    : state.status === 'none' ? 'No releases published yet.'
-    : state.status === 'unconfigured' ? 'Set "repository" in package.json to your GitHub repo to enable update checks.'
-    : `Couldn't check: ${state.error}`;
+  const install = async () => {
+    setResult(null);
+    setProgress({ phase: 'checking' });
+    const outcome = await bridge.installUpdate();
+    setResult(outcome);
+    if (outcome?.status !== 'installing') setProgress(null);
+  };
+
+  const working = progress && progress.phase !== 'installing' && !result;
+  let sub;
+  if (progress?.phase === 'installing' || result?.status === 'installing') {
+    sub = `Installing ${result?.version || progress.version || ''}… TopNotch will close and restart by itself.`;
+  } else if (working) {
+    sub = progress.phase === 'downloading' ? `Downloading… ${progress.percent ?? 0}%` : 'Preparing…';
+  } else if (result?.status === 'downloaded') {
+    sub = `Version ${result.version} saved to your Downloads folder. ${mode.selfInstall ? '' : "This copy can't update itself, so run the new file to install it."}`;
+  } else if (result?.status === 'current') {
+    sub = "You're up to date.";
+  } else if (result?.status === 'error') {
+    sub = `Update failed: ${result.error}`;
+  } else if (!state) {
+    sub = 'Look for a newer release on GitHub.';
+  } else if (state.status === 'available') {
+    sub = mode.selfInstall
+      ? `Version ${state.latest} is available (you have ${state.current}). It downloads, installs and restarts TopNotch.`
+      : `Version ${state.latest} is available (you have ${state.current}). This copy can't update itself; the new file goes to your Downloads folder.`;
+  } else if (state.status === 'current') {
+    sub = `You're up to date (${state.current}).`;
+  } else if (state.status === 'none') {
+    sub = 'No releases published yet.';
+  } else if (state.status === 'unconfigured') {
+    sub = 'Set "repository" in package.json to your GitHub repo to enable update checks.';
+  } else {
+    sub = `Couldn't check: ${state.error}`;
+  }
+
+  let control;
+  if (progress?.phase === 'installing' || result?.status === 'installing') control = <span className="status-ok">Restarting…</span>;
+  else if (working) control = <span className="update-percent">{progress.percent ?? 0}%</span>;
+  else if (state?.status === 'available' && result?.status !== 'downloaded') {
+    control = (
+      <>
+        <button className="button" onClick={() => bridge.openRelease(state.url)}>What's new</button>
+        <button className="button button-primary" onClick={install}>{mode.selfInstall ? 'Download & install' : 'Download'}</button>
+      </>
+    );
+  } else control = <button className="button" disabled={checking} onClick={check}>{checking ? 'Checking…' : 'Check for updates'}</button>;
+
   return (
-    <Row icon={RefreshIcon} title="Updates" sub={sub}>
-      {state?.status === 'available'
-        ? <button className="button button-primary" onClick={() => bridge.openRelease(state.url)}>Download</button>
-        : <button className="button" disabled={checking} onClick={check}>{checking ? 'Checking…' : 'Check for updates'}</button>}
-    </Row>
+    <>
+      <Row icon={RefreshIcon} title="Updates" sub={sub}>
+        <div className="update-actions">{control}</div>
+      </Row>
+      {working && progress.phase === 'downloading' && (
+        <div className="update-progress"><div style={{ transform: `scaleX(${(progress.percent ?? 0) / 100})` }} /></div>
+      )}
+    </>
   );
 }
 

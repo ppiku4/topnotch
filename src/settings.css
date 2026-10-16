@@ -215,3 +215,8 @@ html.is-settings, html.is-settings body { background: #141416; }
 }
 .disclaimer-title { font-size: 13.5px; font-weight: 650; color: #ffb340; }
 .disclaimer p { margin: 6px 0 0; font-size: 12.5px; line-height: 1.5; color: var(--text-dim); }
+
+.update-actions { display: flex; gap: 8px; align-items: center; }
+.update-percent { font-size: 12.5px; font-variant-numeric: tabular-nums; color: var(--text-dim); }
+.update-progress { height: 4px; margin: 0 16px 14px; border-radius: 2px; background: rgba(255, 255, 255, 0.08); overflow: hidden; }
+.update-progress div { height: 100%; background: var(--blue); transform-origin: left; transition: transform 0.25s linear; }

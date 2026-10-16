@@ -36,4 +36,99 @@ async function checkForUpdate(currentVersion) {
   };
 }
 
-module.exports = { checkForUpdate, repoFromPackage };
+// ── Download and install ──────────────────────────────────────────────────
+// Installed (NSIS) builds use electron-updater: it downloads the installer
+// named in the release's latest.yml into its cache under %LOCALAPPDATA%,
+// checks it against the SHA-512 in latest.yml, then runs it silently and
+// relaunches the app. Portable and development copies can't replace
+// themselves, so the new exe is downloaded to the Downloads folder instead.
+const fs = require('fs');
+const path = require('path');
+const { once } = require('events');
+
+function createInstaller({ app, shell, log, onProgress }) {
+  const portable = !!process.env.PORTABLE_EXECUTABLE_FILE;
+  const canSelfInstall = app.isPackaged && !portable;
+  let busy = false;
+
+  async function installWithUpdater() {
+    const { autoUpdater } = require('electron-updater');
+    autoUpdater.autoDownload = false;
+    autoUpdater.autoInstallOnAppQuit = false;
+    autoUpdater.logger = { info: (m) => log('updater: ' + m), warn: (m) => log('updater: ' + m), error: (m) => log('updater error: ' + m), debug: () => {} };
+    const onDownload = (p) => onProgress({ phase: 'downloading', percent: Math.round(p.percent), transferred: p.transferred, total: p.total });
+    autoUpdater.on('download-progress', onDownload);
+    try {
+      onProgress({ phase: 'checking' });
+      const result = await autoUpdater.checkForUpdates();
+      if (!result?.isUpdateAvailable) return { status: 'current' };
+      onProgress({ phase: 'downloading', percent: 0 });
+      await autoUpdater.downloadUpdate();
+      onProgress({ phase: 'installing', version: result.updateInfo.version });
+      // Give the UI a moment to show "Installing", then quit; the installer
+      // runs silently (/S) and starts the new version when it's done.
+      setTimeout(() => autoUpdater.quitAndInstall(true, true), 800);
+      return { status: 'installing', version: result.updateInfo.version };
+    } finally {
+      autoUpdater.removeListener('download-progress', onDownload);
+    }
+  }
+
+  async function downloadToFolder(release) {
+    const wanted = portable ? /^TopNotch-[\d.]+\.exe$/ : /^TopNotch-Setup-[\d.]+\.exe$/;
+    const asset = release.assets.find((a) => wanted.test(a.name));
+    if (!asset) throw new Error('no matching download in the release');
+    const target = path.join(app.getPath('downloads'), asset.name);
+    onProgress({ phase: 'downloading', percent: 0 });
+    const response = await fetch(asset.browser_download_url, { signal: AbortSignal.timeout(10 * 60 * 1000) });
+    if (!response.ok || !response.body) throw new Error(`download failed (${response.status})`);
+    const total = Number(response.headers.get('content-length')) || asset.size || 0;
+    const partial = target + '.part';
+    const out = fs.createWriteStream(partial);
+    let received = 0;
+    let lastPercent = -1;
+    for await (const chunk of response.body) {
+      if (!out.write(chunk)) await once(out, 'drain');
+      received += chunk.length;
+      const percent = total ? Math.floor((received / total) * 100) : 0;
+      if (percent !== lastPercent) { lastPercent = percent; onProgress({ phase: 'downloading', percent, transferred: received, total }); }
+    }
+    await new Promise((resolve, reject) => out.end((e) => (e ? reject(e) : resolve())));
+    fs.renameSync(partial, target);
+    shell.showItemInFolder(target);
+    return { status: 'downloaded', path: target, version: String(release.tag_name).replace(/^v/i, '') };
+  }
+
+  return {
+    canSelfInstall,
+    async install() {
+      if (busy) return { status: 'busy' };
+      busy = true;
+      try {
+        if (canSelfInstall) return await installWithUpdater();
+        const repo = repoFromPackage();
+        if (!repo) return { status: 'unconfigured' };
+        const response = await fetch(`https://api.github.com/repos/${repo.owner}/${repo.repo}/releases/latest`, {
+          headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'TopNotch' },
+          signal: AbortSignal.timeout(10000)
+        });
+        if (!response.ok) throw new Error(`GitHub ${response.status}`);
+        return await downloadToFolder(await response.json());
+      } catch (error) {
+        log('update: ' + error.message);
+        // electron-updater errors include whole HTTP dumps; keep the first line.
+        const first = String(error.message || error).split('\n')[0].trim();
+        const friendly = /\b404\b/.test(first)
+          ? "GitHub returned 404: the release isn't publicly visible."
+          : /ENOTFOUND|ETIMEDOUT|ECONNRESET|network|fetch failed/i.test(first)
+            ? 'No connection to GitHub.'
+            : first.slice(0, 160);
+        return { status: 'error', error: friendly };
+      } finally {
+        busy = false;
+      }
+    }
+  };
+}
+
+module.exports = { checkForUpdate, repoFromPackage, createInstaller };

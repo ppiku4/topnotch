@@ -12,7 +12,7 @@ const { createShelf } = require('./shelf.cjs');
 const { fetchLyrics } = require('./lyrics.cjs');
 const { createWeather } = require('./weather.cjs');
 const { createSensors } = require('./sensors.cjs');
-const { checkForUpdate } = require('./updater.cjs');
+const { checkForUpdate, createInstaller } = require('./updater.cjs');
 
 if (!app.requestSingleInstanceLock()) {
   app.quit();
@@ -58,6 +58,7 @@ let bluetoothDevices = null;
 let statsTimer = null;
 let weather = null;
 let sensors = null;
+let installer = null;
 let lhmCpuTemp = null;
 let lastWeather = null;
 let mixerTimer = null;
@@ -645,6 +646,8 @@ ipcMain.handle('update-check', async (event) => {
   if (!fromOurWindows(event)) return null;
   try { return await checkForUpdate(app.getVersion()); } catch (error) { return { status: 'error', error: error.message, current: app.getVersion() }; }
 });
+ipcMain.handle('update-install', async (event) => (fromOurWindows(event) ? installer.install() : null));
+ipcMain.handle('update-mode', (event) => (fromOurWindows(event) ? { selfInstall: installer.canSelfInstall } : null));
 ipcMain.on('open-release', (event, url) => {
   if (fromOurWindows(event) && /^https:\/\/github\.com\//.test(String(url))) shell.openExternal(String(url));
 });
@@ -680,6 +683,7 @@ app.whenReady().then(() => {
   clipboardHistory = createClipboardHistory({ dir, onChange: (items) => send('clipboard', items) });
   shelf = createShelf({ dir, onChange: (items) => send('shelf', items) });
   sensors = createSensors({ dir, log });
+  installer = createInstaller({ app, shell, log, onProgress: (progress) => broadcast('update-progress', progress) });
   weather = createWeather({
     getConfig: () => config.get(),
     onChange: (data) => { lastWeather = data; broadcast('weather', data); },
