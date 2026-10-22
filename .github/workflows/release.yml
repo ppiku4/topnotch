@@ -1,6 +1,7 @@
 # Builds the Windows installer and portable exe, and the macOS (Apple
-# Silicon) DMG and ZIP. Pushing a tag like v0.2.0 publishes them to a GitHub
-# Release (the in-app update check reads it).
+# Silicon) DMG and ZIP. Pushing a tag like v0.2.0 uploads them to a draft
+# GitHub Release, which is published (and marked Latest) only once both
+# platforms are up, so the in-app update check never sees a half release.
 name: Build
 
 on:
@@ -27,6 +28,15 @@ jobs:
 
       - name: Build
         run: npx vite build
+
+      # electron-builder uploads files in parallel and each upload would try
+      # to create the release; making sure the draft exists first avoids that.
+      - name: Draft release
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 || gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft --title "${GITHUB_REF_NAME#v}" --notes ""
 
       - name: Package (publish on tags)
         env:
@@ -60,6 +70,15 @@ jobs:
       - name: Build
         run: npx vite build
 
+      # electron-builder uploads files in parallel and each upload would try
+      # to create the release; making sure the draft exists first avoids that.
+      - name: Draft release
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 || gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft --title "${GITHUB_REF_NAME#v}" --notes ""
+
       # Ad-hoc signed (no Developer ID): users open it the first time with
       # right-click → Open, or System Settings → Privacy & Security.
       - name: Package (publish on tags)
@@ -75,3 +94,14 @@ jobs:
             release/*.dmg
             release/*.zip
             release/latest-mac.yml
+
+  # Both platforms uploaded: publish the draft and make it the latest release.
+  publish:
+    needs: [windows, mac]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft=false --latest
