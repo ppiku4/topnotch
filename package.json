@@ -2,7 +2,7 @@
   "name": "topnotch",
   "productName": "TopNotch",
   "version": "0.1.9",
-  "description": "A Dynamic Island for Windows: media, synced lyrics, system stats and quick controls in a notch at the top of your screen.",
+  "description": "Free Dynamic Island for Windows and macOS: now playing with synced lyrics, volume mixer, Bluetooth, clipboard history, focus timer, system stats, file shelf and a file converter with AI background removal.",
   "license": "MIT",
   "author": "TopNotch contributors",
   "homepage": "https://github.com/ppiku4/topnotch#readme",
