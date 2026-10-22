@@ -774,11 +774,34 @@ function startDragWatch() {
 
 // ── IPC ───────────────────────────────────────────────────────────────────
 
-const fromNotch = (event) => BrowserWindow.fromWebContents(event.sender) === notchWindow;
+// IPC only counts when it comes from TopNotch's own page in the window's top
+// frame, not just from one of its windows: a window that somehow navigated
+// elsewhere keeps the preload, so the page's URL is checked too.
+const APP_PAGE = process.env.TOPNOTCH_DEV ? 'http://127.0.0.1:5173/' : pathToFileURL(path.join(__dirname, '..', 'dist', 'index.html')).href;
+const isAppUrl = (url) => {
+  const bare = String(url || '').split('#')[0].split('?')[0];
+  return process.env.TOPNOTCH_DEV ? bare === APP_PAGE || bare === APP_PAGE.slice(0, -1) : bare === APP_PAGE;
+};
+const fromAppPage = (event) => {
+  const frame = event.senderFrame;
+  return !!frame && frame === event.sender.mainFrame && isAppUrl(frame.url);
+};
+const fromNotch = (event) => fromAppPage(event) && BrowserWindow.fromWebContents(event.sender) === notchWindow;
 const fromOurWindows = (event) => {
+  if (!fromAppPage(event)) return false;
   const win = BrowserWindow.fromWebContents(event.sender);
   return win && (win === notchWindow || win === settingsWindow || win === setupWindow);
 };
+
+// No window ever leaves TopNotch's page: dropping a link or file on a window
+// would otherwise load it there (with the preload attached). No pop-ups or
+// webviews either.
+app.on('web-contents-created', (_event, contents) => {
+  contents.on('will-navigate', (event, url) => { if (!isAppUrl(url)) event.preventDefault(); });
+  contents.on('will-redirect', (event, url) => { if (!isAppUrl(url) && !url.startsWith('file:')) event.preventDefault(); });
+  contents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  contents.on('will-attach-webview', (event) => event.preventDefault());
+});
 const ALLOWED_MEDIA_KEYS = new Set(['play-pause', 'next', 'previous']);
 
 ipcMain.on('set-passthrough', (event, passthrough) => {
@@ -884,7 +907,7 @@ ipcMain.handle('displays-get', (event) => {
 });
 ipcMain.on('open-settings', (event) => { if (fromOurWindows(event)) openSettings(); });
 ipcMain.on('settings-close', (event) => {
-  if (settingsWindow && BrowserWindow.fromWebContents(event.sender) === settingsWindow) settingsWindow.close();
+  if (fromAppPage(event) && settingsWindow && BrowserWindow.fromWebContents(event.sender) === settingsWindow) settingsWindow.close();
 });
 ipcMain.handle('app-info', (event) => (fromOurWindows(event)
   ? { name: 'TopNotch', version: app.getVersion(), electron: process.versions.electron }
@@ -1032,8 +1055,8 @@ async function openWheel(file, physical) {
   startWheelWatch();
 }
 
-const fromWheel = (event) => wheelWindow && !wheelWindow.isDestroyed() && event.sender === wheelWindow.webContents;
-const fromEditor = (event) => editorWindow && !editorWindow.isDestroyed() && event.sender === editorWindow.webContents;
+const fromWheel = (event) => fromAppPage(event) && wheelWindow && !wheelWindow.isDestroyed() && event.sender === wheelWindow.webContents;
+const fromEditor = (event) => fromAppPage(event) && editorWindow && !editorWindow.isDestroyed() && event.sender === editorWindow.webContents;
 
 function startConvert(file, target) {
   converter.convert(file, target).catch(() => {}); // progress and errors arrive as jobs
@@ -1045,15 +1068,32 @@ function onConvertJob(job) {
 }
 
 // Chromium prints HTML to PDF; relative images resolve next to the source.
+// The document comes from the user's file, so it renders offline: its own
+// session that only loads local files and inline data, no scripts, no
+// navigation (see web-contents-created), and a time limit.
+let pdfSession = null;
+function getPdfSession() {
+  if (!pdfSession) {
+    const { session } = require('electron');
+    pdfSession = session.fromPartition('topnotch-pdf');
+    pdfSession.webRequest.onBeforeRequest((details, callback) => {
+      callback({ cancel: !/^(file|data|blob):/i.test(details.url) });
+    });
+    pdfSession.setPermissionRequestHandler((_wc, _permission, callback) => callback(false));
+  }
+  return pdfSession;
+}
+
 async function renderPdf(html, sourceFile) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'topnotch-pdf-'));
   const page = path.join(dir, 'page.html');
   const base = `<base href="${pathToFileURL(path.dirname(sourceFile) + path.sep).href}">`;
   fs.writeFileSync(page, /<head[^>]*>/i.test(html) ? html.replace(/<head[^>]*>/i, (m) => m + base) : base + html);
-  const win = new BrowserWindow({ show: false, webPreferences: { javascript: false, sandbox: true, contextIsolation: true } });
+  const win = new BrowserWindow({ show: false, webPreferences: { javascript: false, sandbox: true, contextIsolation: true, session: getPdfSession() } });
+  const timeout = (ms) => new Promise((_resolve, reject) => setTimeout(() => reject(new Error('PDF rendering timed out')), ms));
   try {
-    await win.loadFile(page);
-    return await win.webContents.printToPDF({ pageSize: 'A4', printBackground: true, margins: { marginType: 'default' } });
+    await Promise.race([win.loadFile(page), timeout(30000)]);
+    return await Promise.race([win.webContents.printToPDF({ pageSize: 'A4', printBackground: true, margins: { marginType: 'default' } }), timeout(60000)]);
   } finally {
     win.destroy();
     fs.promises.rm(dir, { recursive: true, force: true }).catch(() => {});
@@ -1157,7 +1197,7 @@ ipcMain.handle('engine-install', async (event, id) => {
 });
 ipcMain.handle('engines-install-missing', async (event) => (fromOurWindows(event) ? { ok: await installMissingEngines() } : { ok: false }));
 ipcMain.on('setup-close', (event) => {
-  if (setupWindow && BrowserWindow.fromWebContents(event.sender) === setupWindow) setupWindow.close();
+  if (fromAppPage(event) && setupWindow && BrowserWindow.fromWebContents(event.sender) === setupWindow) setupWindow.close();
 });
 ipcMain.on('open-setup', (event) => { if (fromOurWindows(event)) openSetup(); });
 ipcMain.handle('ai-models-get', (event) => (fromOurWindows(event) ? converter.models.status() : null));

@@ -16,6 +16,7 @@ let current = {};      // merged payload (the stream sends diffs)
 let lastSent = '';
 let lastArtKey = null;
 let stream = null;
+let restartDelay = 2000;
 
 function publish() {
   const p = current;
@@ -56,6 +57,7 @@ function startStream() {
     let msg;
     try { msg = JSON.parse(line); } catch (_) { return; }
     if (!msg || msg.type !== 'data' || !msg.payload) return;
+    restartDelay = 2000; // healthy again
     if (msg.diff) {
       for (const [key, value] of Object.entries(msg.payload)) {
         if (value === null) delete current[key]; else current[key] = value;
@@ -66,10 +68,19 @@ function startStream() {
     publish();
   });
   stream.stderr.on('data', (chunk) => console.error('[mediaremote] ' + String(chunk).trim()));
+  // Perl couldn't start at all: 'exit' won't follow, so retry from here.
+  stream.on('error', (error) => {
+    console.error('[mediaremote] ' + error.message);
+    stream = null;
+    setTimeout(startStream, restartDelay);
+    restartDelay = Math.min(restartDelay * 2, 60000);
+  });
   stream.on('exit', (code) => {
     stream = null;
-    console.error(`[mediaremote] stream exited ${code}`);
-    setTimeout(startStream, 2000);
+    console.error(`[mediaremote] stream exited ${code}, restarting in ${restartDelay}ms`);
+    setTimeout(startStream, restartDelay);
+    // A missing or broken adapter shouldn't respawn Perl every 2 s forever.
+    restartDelay = Math.min(restartDelay * 2, 60000);
   });
 }
 

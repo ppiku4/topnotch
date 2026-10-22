@@ -62,11 +62,25 @@ function kindOf(file) {
   return Object.keys(KINDS).find((kind) => KINDS[kind].includes(ext)) || null;
 }
 
-// "photo.png" → "photo (1).png" … until the name is free.
+// "photo.png" → "photo (1).png" … until the name is free. The name is
+// claimed by creating an empty file exclusively ('wx'), so two conversions
+// running at once can never pick the same name and overwrite each other;
+// the converter then writes over that placeholder.
 function freePath(dir, base, ext) {
-  let candidate = path.join(dir, `${base}.${ext}`);
-  for (let n = 1; fs.existsSync(candidate); n++) candidate = path.join(dir, `${base} (${n}).${ext}`);
-  return candidate;
+  for (let n = 0; ; n++) {
+    const candidate = path.join(dir, n ? `${base} (${n}).${ext}` : `${base}.${ext}`);
+    try {
+      fs.closeSync(fs.openSync(candidate, 'wx'));
+      return candidate;
+    } catch (error) {
+      if (error.code !== 'EEXIST') throw error;
+    }
+  }
+}
+
+// A failed job leaves no empty placeholder behind.
+function dropPlaceholder(file) {
+  try { if (fs.statSync(file).size === 0) fs.rmSync(file, { force: true }); } catch (_) {}
 }
 
 function outputFor(file, ext) {
@@ -607,6 +621,7 @@ function createConverter({ dir, log, renderPdf, onJob, getSettings, onModelStatu
       return out;
     } catch (error) {
       log('remove background ' + job.name + ': ' + error.message);
+      dropPlaceholder(out);
       report({ status: 'error', error: error.message });
       throw error;
     }
@@ -665,6 +680,7 @@ function createConverter({ dir, log, renderPdf, onJob, getSettings, onModelStatu
       return out;
     } catch (error) {
       log(`convert ${name} → ${target}: ${error.message}`);
+      dropPlaceholder(out);
       report({ status: 'error', error: error.message });
       throw error;
     }
@@ -683,6 +699,7 @@ function createConverter({ dir, log, renderPdf, onJob, getSettings, onModelStatu
       onJob({ ...job, status: 'done', progress: 1, output: out });
       return out;
     } catch (error) {
+      dropPlaceholder(out);
       onJob({ ...job, status: 'error', error: error.message });
       throw error;
     }

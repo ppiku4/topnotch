@@ -122,6 +122,11 @@ function Sensors() {
           <Toggle checked={!!status.atSignIn} onChange={(v) => run('task', () => bridge.setSensorsAtSignIn(v))} />
         </Row>
       )}
+      {status.taskNeedsUpdate && (
+        <Row icon={ShrinkIcon} title="Secure the sign-in task" sub="This task was set up by an older version and runs LibreHardwareMonitor from a folder other programs can change. Securing it moves it to Program Files (one administrator prompt).">
+          <button className="button" disabled={!!working} onClick={() => run('task', () => bridge.setSensorsAtSignIn(true))}>{working === 'task' ? 'Securing…' : 'Secure it'}</button>
+        </Row>
+      )}
       {error && <div className="row row-error">{error}</div>}
     </>
   );

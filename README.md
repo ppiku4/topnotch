@@ -349,7 +349,7 @@ On Windows, use **Settings → Apps → Installed apps → TopNotch → Uninstal
 
 TopNotch runs locally. The only network requests are listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md#online-services), each tied to a feature you can switch off.
 
-Clipboard history text is saved to `%APPDATA%\topnotch\clipboard.json`. Turn it off in Settings if you copy passwords.
+Clipboard history text is saved to `%APPDATA%\topnotch\clipboard.json`. It is encrypted with your account's key store (DPAPI on Windows, the Keychain on macOS), and copies that password managers mark as private are never recorded. You can still turn the history off in Settings → Widgets.
 
 ---
 

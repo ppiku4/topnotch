@@ -64,8 +64,10 @@ function createSystemService({ onLevels, onEvent = () => {}, log = console.log }
     }
   }
 
+  // One command per line: anything that came from outside (a media app's
+  // ID) can't smuggle in a second command with a line break.
   function command(line) {
-    if (child && child.stdin.writable) child.stdin.write(line + '\n');
+    if (child && child.stdin.writable) child.stdin.write(String(line).replace(/[\r\n]+/g, ' ') + '\n');
   }
 
   const clampPercent = (value) => Math.max(0, Math.min(100, Math.round(value)));

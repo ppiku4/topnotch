@@ -39,17 +39,17 @@
     "yaml": "^2.9.1"
   },
   "devDependencies": {
-    "@vitejs/plugin-react": "^4.3.4",
+    "@vitejs/plugin-react": "^4.7.0",
     "concurrently": "^9.1.0",
     "cross-env": "^7.0.3",
-    "electron": "^33.2.1",
-    "electron-builder": "^25.1.8",
-    "vite": "^5.4.11",
+    "electron": "^44.9.3",
+    "electron-builder": "^26.15.3",
+    "vite": "^6.4.5",
     "wait-on": "^8.0.1"
   },
   "allowScripts": {
-    "electron@33.2.1": true,
-    "esbuild@0.21.5": true
+    "esbuild@0.21.5": true,
+    "electron@44.9.3": true
   },
   "build": {
     "appId": "com.topnotch.app",
@@ -166,5 +166,8 @@
       "title": "TopNotch ${version}"
     },
     "afterPack": "scripts/after-pack.cjs"
+  },
+  "overrides": {
+    "builder-util-runtime": "^9.7.0"
   }
 }

@@ -708,6 +708,8 @@ static class FileClick {
     [DllImport("user32.dll")] static extern uint SendInput(uint count, INPUT[] inputs, int size);
     [DllImport("user32.dll", EntryPoint = "SendInput")] static extern uint SendKeys(uint count, KEYINPUT_WRAPPER[] inputs, int size);
     [DllImport("user32.dll")] static extern bool SetCursorPos(int x, int y);
+    [DllImport("user32.dll")] static extern bool GetCursorPos(out POINT pt);
+    [DllImport("user32.dll")] static extern int GetSystemMetrics(int index);
     [DllImport("kernel32.dll")] static extern IntPtr GetModuleHandle(string name);
     [DllImport("user32.dll")] static extern bool SetProcessDPIAware();
 
@@ -798,12 +800,26 @@ static class FileClick {
     }
 
     // Puts a held-back click back exactly where it happened.
+    // Absolute coordinates on the whole virtual desktop, so the click lands
+    // where it happened even if the pointer has moved on since, and the
+    // pointer ends up back where the user left it.
     static void Replay(POINT pt) {
-        SetCursorPos(pt.x, pt.y);
-        var inputs = new INPUT[2];
-        inputs[0].type = 0; inputs[0].mi.dwFlags = 0x0002; // LEFTDOWN
-        inputs[1].type = 0; inputs[1].mi.dwFlags = 0x0004; // LEFTUP
-        SendInput(2, inputs, Marshal.SizeOf(typeof(INPUT)));
+        POINT now;
+        GetCursorPos(out now);
+        int vx = GetSystemMetrics(76), vy = GetSystemMetrics(77), vw = GetSystemMetrics(78), vh = GetSystemMetrics(79);
+        Func<POINT, MOUSEINPUT> move = (p) => {
+            var mi = new MOUSEINPUT();
+            mi.dx = (int)Math.Round((p.x - vx) * 65535.0 / Math.Max(1, vw - 1));
+            mi.dy = (int)Math.Round((p.y - vy) * 65535.0 / Math.Max(1, vh - 1));
+            mi.dwFlags = 0x0001 | 0x8000 | 0x4000; // MOVE | ABSOLUTE | VIRTUALDESK
+            return mi;
+        };
+        var inputs = new INPUT[4];
+        inputs[0].type = 0; inputs[0].mi = move(pt);
+        inputs[1].type = 0; inputs[1].mi.dwFlags = 0x0002; // LEFTDOWN
+        inputs[2].type = 0; inputs[2].mi.dwFlags = 0x0004; // LEFTUP
+        inputs[3].type = 0; inputs[3].mi = move(now);
+        SendInput(4, inputs, Marshal.SizeOf(typeof(INPUT)));
     }
 
     static object Invoke(object target, string member, System.Reflection.BindingFlags kind, params object[] args) {
