@@ -356,20 +356,45 @@ function withTimeline(state) {
   return { ...state, position: timeline.position, positionAt: timeline.updated };
 }
 
+// Per-song timing nudges from the Music tab, kept across restarts. Positive
+// seconds show the lyrics later.
+let lyricsOffsets = null;
+let rawLyricLines = [];
+const offsetsFile = () => path.join(app.getPath('userData'), 'lyrics-offsets.json');
+function lyricsOffset(key) {
+  if (!lyricsOffsets) {
+    try { lyricsOffsets = JSON.parse(fs.readFileSync(offsetsFile(), 'utf8')) || {}; } catch (_) { lyricsOffsets = {}; }
+  }
+  return Number(lyricsOffsets[key]) || 0;
+}
+function shiftLines(lines, offset) {
+  if (!offset) return lines;
+  return lines.map((line) => ({
+    ...line,
+    time: line.time + offset,
+    ...(line.words ? { words: line.words.map((w) => ({ ...w, time: w.time + offset })) } : null)
+  }));
+}
+function publishLyrics() {
+  const offset = lyricsOffset(lyricsKey);
+  lastLyrics = { key: lyricsKey, lines: shiftLines(rawLyricLines, offset), offset };
+  send('lyrics', lastLyrics);
+}
+
 function updateLyrics() {
   const key = lastMedia ? `${lastMedia.title}|${lastMedia.artist}` : null;
   if (key === lyricsKey) return;
   lyricsKey = key;
-  lastLyrics = { key, lines: [] };
-  send('lyrics', lastLyrics);
+  rawLyricLines = [];
+  publishLyrics();
   if (!key || !features().lyrics) return;
-  const { title, artist, duration } = lastMedia;
-  const load = (retriesLeft) => fetchLyrics({ title, artist, duration })
-    .then((lines) => {
+  const { title, artist, album, duration } = lastMedia;
+  const load = (retriesLeft) => fetchLyrics({ title, artist, album, duration })
+    .then(({ lines, id, duration: lyricDuration, wordSync }) => {
       if (lyricsKey !== key) return;
-      log(`lyrics: ${lines.length} lines for "${title}"`);
-      lastLyrics = { key, lines };
-      send('lyrics', lastLyrics);
+      log(`lyrics: ${lines.length} lines for "${title}"${id ? ` (lrclib ${id}, ${lyricDuration}s vs ${Math.round(duration)}s${wordSync ? ', word-synced' : ''})` : ''}`);
+      rawLyricLines = lines;
+      publishLyrics();
     })
     .catch((error) => {
       log(`lyrics: ${error.message} for "${title}"`);
@@ -800,6 +825,14 @@ ipcMain.handle('sensors-start', async (event) => {
 ipcMain.handle('sensors-at-sign-in', async (event, on) => {
   if (!fromOurWindows(event)) return { ok: false };
   try { return { ok: true, atSignIn: await sensors.setAtSignIn(!!on) }; } catch (error) { return { ok: false, error: error.message }; }
+});
+ipcMain.on('lyrics-offset', (event, delta) => {
+  if (!fromNotch(event) || !lyricsKey || !Number.isFinite(delta)) return;
+  const current = lyricsOffset(lyricsKey);
+  const next = delta === 0 ? 0 : Math.max(-15, Math.min(15, Math.round((current + delta) * 20) / 20));
+  if (next) lyricsOffsets[lyricsKey] = next; else delete lyricsOffsets[lyricsKey];
+  try { fs.writeFileSync(offsetsFile(), JSON.stringify(lyricsOffsets, null, 2)); } catch (_) {}
+  publishLyrics();
 });
 ipcMain.on('lyrics-resync', (event) => {
   if (!fromNotch(event)) return;

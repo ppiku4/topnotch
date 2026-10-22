@@ -16,7 +16,7 @@ Built with Electron, React, Vite and framer-motion. Windows 10 (1809) or later; 
 ## Features
 
 - **Now playing** from any app that reports to Windows media controls (Spotify, browsers, media players): artwork, play/pause/next/previous, seek bar, album-colour accents.
-- **Synced lyrics** from [lrclib.net](https://lrclib.net/), in the style of Apple Music:
+- **Synced lyrics** from [lrclib.net](https://lrclib.net/) (the copy matching what's playing), with real word timing from NetEase Cloud Music where available, in the style of Apple Music:
   - words fill as they're sung
   - held words swell and glow
   - the Music tab shows a scrolling list; click a line to jump there

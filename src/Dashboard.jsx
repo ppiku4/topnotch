@@ -124,6 +124,19 @@ function ResyncButton() {
   );
 }
 
+// Nudge this song's lyrics when the source is timed against a different
+// cut (music videos often add an intro). Saved per song.
+function LyricsTiming({ offset = 0 }) {
+  const label = `${offset > 0 ? '+' : offset < 0 ? '−' : ''}${Math.abs(offset).toFixed(offset % 0.5 ? 2 : 1)}s`;
+  return (
+    <div className="lyrics-timing" title="Lyrics early or late? Nudge them. Double-click to reset.">
+      <motion.button {...PRESS} className="timing-step" aria-label="Show lyrics earlier" onClick={() => bridge.nudgeLyrics(-0.25)}>−</motion.button>
+      <span className={`timing-value${offset ? ' is-set' : ''}`} onDoubleClick={() => bridge.nudgeLyrics(0)}>{label}</span>
+      <motion.button {...PRESS} className="timing-step" aria-label="Show lyrics later" onClick={() => bridge.nudgeLyrics(0.25)}>+</motion.button>
+    </div>
+  );
+}
+
 export function MusicTab({ media, lyrics, levels, hold, showLyrics }) {
   const seek = useSeek(media);
   if (!media) return <div className="tab tab-empty"><span className="empty-icon"><MusicIcon /></span>Nothing playing</div>;
@@ -141,6 +154,7 @@ export function MusicTab({ media, lyrics, levels, hold, showLyrics }) {
             <div className="artist">{media.artist || media.album}</div>
           </div>
           <Bars playing={media.playing} />
+          {showLyrics && lines.length > 0 && <LyricsTiming offset={lyrics.offset} />}
           {showLyrics && <ResyncButton />}
         </motion.div>
         {lines.length > 0

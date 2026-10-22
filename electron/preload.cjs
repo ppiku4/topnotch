@@ -66,6 +66,7 @@ contextBridge.exposeInMainWorld('topnotch', {
   setMeter: (on) => ipcRenderer.send('meter', !!on),
   onPeak: (callback) => subscribe('peak', callback),
   resyncLyrics: () => ipcRenderer.send('lyrics-resync'),
+  nudgeLyrics: (seconds) => ipcRenderer.send('lyrics-offset', Number(seconds)),
   closeSettings: () => ipcRenderer.send('settings-close'),
   getAppInfo: () => ipcRenderer.invoke('app-info'),
   openFolder: (which) => ipcRenderer.send('open-folder', String(which)),

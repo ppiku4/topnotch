@@ -58,6 +58,8 @@ const ACCENT_DISABLED = 0;
 const ACCENT_ENABLE_ACRYLICBLURBEHIND = 4;
 const DWMWA_WINDOW_CORNER_PREFERENCE = 33;
 const DWMWCP_ROUND = 2;
+const DWMWA_BORDER_COLOR = 34;
+const DWMWA_COLOR_NONE = 0xfffffffe;
 
 const hwndOf = (win) => win.getNativeWindowHandle().readBigInt64LE(0);
 
@@ -68,9 +70,13 @@ function setAcrylic(win, on, tint = 0x8c0e0e10) {
   return SetWindowCompositionAttribute(hwndOf(win), { attribute: WCA_ACCENT_POLICY, data: buffer, size: koffi.sizeof(ACCENT_POLICY) });
 }
 
-// No effect on Windows 10, where corners stay square.
+// No effect on Windows 10, where corners stay square. Windows 11 also draws
+// a 1px frame around rounded windows; the island has its own hairline, so
+// that frame is turned off to avoid a double border.
 function setRoundedCorners(win) {
-  return DwmSetWindowAttribute(hwndOf(win), DWMWA_WINDOW_CORNER_PREFERENCE, [DWMWCP_ROUND], 4);
+  const hwnd = hwndOf(win);
+  DwmSetWindowAttribute(hwnd, DWMWA_BORDER_COLOR, [DWMWA_COLOR_NONE | 0], 4);
+  return DwmSetWindowAttribute(hwnd, DWMWA_WINDOW_CORNER_PREFERENCE, [DWMWCP_ROUND], 4);
 }
 
 function isKeyDown(vk) {

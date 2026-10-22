@@ -52,6 +52,7 @@ export const bridge = window.topnotch ?? {
   setMeter: () => {},
   onPeak: off,
   resyncLyrics: log('resync'),
+  nudgeLyrics: log('nudge lyrics'),
   closeSettings: log('close settings'),
   getAppInfo: async () => ({ name: 'TopNotch', version: 'dev', electron: '' }),
   openFolder: log('open folder'),

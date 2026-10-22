@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { AnimatePresence, motion } from 'framer-motion';
+import { motion } from 'framer-motion';
 import { bridge } from './bridge.js';
 import { useConfig } from './hooks.js';
 import { SPRING_SNAPPY, SPRING_SOFT } from './motion.js';
@@ -461,20 +461,20 @@ export default function Settings() {
           <button className="close-button no-drag" aria-label="Close" onClick={() => bridge.closeSettings()}><CloseIcon /></button>
         </header>
         <div className="content-scroll">
-          <AnimatePresence mode="wait" initial={false}>
-            <motion.div
-              key={section}
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0, transition: SPRING_SOFT }}
-              exit={{ opacity: 0, y: -6, transition: { duration: 0.12 } }}
-            >
-              {section === 'general' && <General config={config} />}
-              {section === 'appearance' && <Appearance config={config} />}
-              {section === 'widgets' && <Widgets config={config} />}
-              {section === 'tips' && <Tips />}
-              {section === 'about' && <About />}
-            </motion.div>
-          </AnimatePresence>
+          {/* Enter animation only: an exit under AnimatePresence mode="wait"
+              never completed while the page held layoutId pills, leaving
+              every other section blank. */}
+          <motion.div
+            key={section}
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0, transition: SPRING_SOFT }}
+          >
+            {section === 'general' && <General config={config} />}
+            {section === 'appearance' && <Appearance config={config} />}
+            {section === 'widgets' && <Widgets config={config} />}
+            {section === 'tips' && <Tips />}
+            {section === 'about' && <About />}
+          </motion.div>
         </div>
       </main>
     </div>

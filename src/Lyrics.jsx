@@ -42,24 +42,27 @@ const isStretchy = (word) => STRETCHY.test(word.replace(/[^a-z]/gi, '')) || /([a
 // Fast lines leave no slack, so their words animate quickly.
 function wordTimings(line, nextTime) {
   if (!line || !line.text) return [];
-  const gap = Math.max(0.4, (nextTime ?? line.time + 5) - line.time);
+  // Lyricsfile records say when the line actually ends; older LRC only
+  // tells us when the next one starts.
+  const lineEnd = line.end && (!nextTime || line.end <= nextTime + 0.05) ? line.end : null;
+  const gap = Math.max(0.4, (lineEnd ?? nextTime ?? line.time + 5) - line.time);
   if (line.words?.length) {
     return line.words.map((w, i) => {
       const next = line.words[i + 1]?.time;
-      const end = next ?? Math.min(line.time + gap - 0.1, w.time + 0.3 + syllables(w.text) * 0.22);
+      const end = w.end ?? next ?? Math.min(line.time + gap - 0.1, w.time + 0.3 + syllables(w.text) * 0.22);
       return { text: w.text, start: w.time, end: Math.max(end, w.time + 0.12) };
     });
   }
   const tokens = line.text.split(/\s+/).filter(Boolean);
   const sylls = tokens.map(syllables);
   const pauses = tokens.map((t, i) => (i < tokens.length - 1 && /[,;:—-]$/.test(t) ? 0.18 : 0));
-  const usable = Math.max(0.3, gap - 0.12);
+  const usable = Math.max(0.3, gap - (lineEnd ? 0.02 : 0.12));
   const natural = sylls.reduce((a, b) => a + b, 0) * 0.22 + pauses.reduce((a, b) => a + b, 0);
   const pace = natural > usable ? usable / natural : 1;
   const durations = sylls.map((n) => n * 0.22 * pace);
   // Spread the slack: held words get most of it, capped so a long
   // instrumental gap doesn't stretch one word for ten seconds.
-  let slack = Math.min(usable - natural * pace, 3);
+  let slack = Math.min(usable - natural * pace, lineEnd ? 6 : 3);
   if (slack > 0.05) {
     const holds = tokens.map((t, i) => (i === tokens.length - 1 ? 3 : 0) + (isStretchy(t) ? 2 : 0) + (pauses[i] ? 1 : 0));
     const totalHold = holds.reduce((a, b) => a + b, 0);
@@ -90,7 +93,9 @@ function useLoudness() {
       bridge.setMeter(true);
       stopPeaks = bridge.onPeak((v) => {
         const target = Math.min(1, Math.sqrt(Math.max(0, v)) * 1.25);
-        loudness += (target - loudness) * (target > loudness ? 0.5 : 0.12);
+        // Gentle attack and slow release: the swell breathes with the song
+        // instead of twitching on every drum hit.
+        loudness += (target - loudness) * (target > loudness ? 0.22 : 0.08);
       });
     }
     return () => {
@@ -118,13 +123,13 @@ function paintWords(elements, words, position) {
     const p = linear * linear * (3 - 2 * linear);
     const held = clamp01((w.end - w.start - 0.45) / 1.0);
     const hold = position < w.start ? 0
-      : position <= w.end ? easeOut(clamp01((position - w.start) / 0.12))
-      : 1 - easeOut(clamp01((position - w.end) / 0.35));
-    const glow = position < w.start ? 0 : position <= w.end ? p : clamp01(1 - (position - w.end) / 0.5);
+      : position <= w.end ? easeInOut(clamp01((position - w.start) / 0.18))
+      : 1 - easeInOut(clamp01((position - w.end) / 0.45));
+    const glow = position < w.start ? 0 : position <= w.end ? p : clamp01(1 - (position - w.end) / 0.6);
     el.style.setProperty('--p', p.toFixed(3));
-    // Louder passages push the swell and glow further.
+    // Louder passages push the swell a little and the glow more.
     const energy = 0.55 + loudness * 0.7;
-    el.style.setProperty('--a', (hold * energy).toFixed(3));
+    el.style.setProperty('--a', (hold * (0.8 + loudness * 0.3)).toFixed(3));
     el.style.setProperty('--h', held.toFixed(3));
     el.style.setProperty('--g', Math.min(1, held * glow * energy).toFixed(3));
     if (p > 0) active = i;
@@ -132,7 +137,7 @@ function paintWords(elements, words, position) {
   return active;
 }
 
-const easeOut = (t) => 1 - (1 - t) * (1 - t) * (1 - t);
+const easeInOut = (t) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
 
 const LEAD_IN = 0.08;
 
@@ -162,9 +167,9 @@ function Dots({ dotsRef }) {
 // Lines rise in (their words then fade up one by one in CSS) and drift up
 // and out a little faster, so the next line is never waiting on the old one.
 const LINE_MOTION = {
-  initial: { opacity: 0, y: 10, scale: 0.98, filter: 'blur(4px)' },
-  animate: { opacity: 1, y: 0, scale: 1, filter: 'blur(0px)' },
-  exit: { opacity: 0, y: -10, scale: 0.98, filter: 'blur(4px)', transition: { duration: 0.22, ease: [0.4, 0, 1, 1] } }
+  initial: { opacity: 0, y: 9, filter: 'blur(3px)' },
+  animate: { opacity: 1, y: 0, filter: 'blur(0px)' },
+  exit: { opacity: 0, y: -8, filter: 'blur(3px)', transition: { duration: 0.24, ease: [0.5, 0, 0.75, 0] } }
 };
 
 // ── Pill: one line, reports its natural width so the pill can fit it ─────
@@ -255,15 +260,21 @@ export function LyricsList({ lines, media, seekedTo, onSeek }) {
 
   return (
     <div className="lyrics lyrics-list">
-      <motion.div className="lyrics-scroll" animate={{ y: offset }} transition={SPRING_SOFT}>
-        {index < 0 && <div className="ll ll-intro is-current"><Dots dotsRef={(el) => { if (el) dotsEl.current = el; }} /></div>}
+      <div className="lyrics-scroll">
+        {index < 0 && <div className="ll ll-intro is-current" style={{ '--y': `${offset}px` }}><Dots dotsRef={(el) => { if (el) dotsEl.current = el; }} /></div>}
         {lines.map((l, i) => {
           const distance = i - index;
           const current = distance === 0;
-          const style = current ? undefined : {
-            opacity: distance < 0 ? 0.28 : Math.max(0.18, 0.5 - (distance - 1) * 0.1),
-            filter: `blur(${Math.min(3, Math.abs(distance) * 0.9)}px)`,
-            transform: 'scale(0.95)'
+          // Lines above move first, the current one next, lines below
+          // trail by 45 ms each.
+          const style = {
+            '--y': `${offset}px`,
+            '--delay': `${Math.min(6, Math.max(0, distance + 1)) * 0.045}s`,
+            ...(current ? null : {
+              '--s': 0.95,
+              opacity: distance < 0 ? 0.28 : Math.max(0.18, 0.5 - (distance - 1) * 0.1),
+              filter: `blur(${Math.min(2.5, Math.abs(distance) * 0.8)}px)`
+            })
           };
           return (
             <div
@@ -282,7 +293,7 @@ export function LyricsList({ lines, media, seekedTo, onSeek }) {
             </div>
           );
         })}
-      </motion.div>
+      </div>
     </div>
   );
 }

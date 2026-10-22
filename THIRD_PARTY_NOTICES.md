@@ -17,6 +17,7 @@ TopNotch is MIT-licensed (see [LICENSE](LICENSE)). It builds on the projects bel
 | [marked](https://marked.js.org/) | MIT | Markdown → HTML/PDF |
 | [turndown](https://github.com/mixmark-io/turndown) | MIT | HTML → Markdown |
 | [mammoth](https://github.com/mwilliamson/mammoth.js) | BSD-2-Clause | Reading .docx |
+| [yaml](https://eemeli.org/yaml/) | ISC | Reading lrclib's Lyricsfile (line end and word times) |
 | [unpdf](https://github.com/unjs/unpdf) / [pdf.js](https://mozilla.github.io/pdf.js/) | MIT / Apache-2.0 | Text from PDF files |
 
 ## Downloaded only when you ask for it
@@ -39,6 +40,7 @@ TopNotch contacts these only for the features named. Each can be turned off in S
 | Service | Feature | What is sent |
 | --- | --- | --- |
 | [lrclib.net](https://lrclib.net/) | Synced lyrics | Track title, artist, duration |
+| [NetEase Cloud Music](https://music.163.com/) | Word-by-word timing for synced lyrics | Track title and artist |
 | [Open-Meteo](https://open-meteo.com/) | Weather | Coordinates of your city, or of the IP location below |
 | [ipwho.is](https://ipwho.is/) | Weather, only when no city is set | Your IP address (implicitly) |
 | GitHub API | Update check, only when you click it | Nothing beyond the request itself |
