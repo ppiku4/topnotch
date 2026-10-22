@@ -137,12 +137,21 @@
 
 /* ── Edge glow, material ───────────────────────────────────────────────── */
 
+/* --beat (0..1, beat.js) nudges the glow on each beat: a few pixels more
+   blur and a touch more colour, then it settles. Deliberately small. */
 .island.is-glowing.glow-subtle {
-  box-shadow: 0 6px 24px -6px color-mix(in srgb, var(--accent) 55%, transparent), 0 10px 30px rgba(0, 0, 0, 0.35);
+  box-shadow:
+    0 6px calc(24px + var(--beat, 0) * 7px) calc(-6px + var(--beat, 0) * 1.5px) color-mix(in srgb, var(--accent) calc(55% + var(--beat, 0) * 18%), transparent),
+    0 10px 30px rgba(0, 0, 0, 0.35);
 }
 .island.is-glowing.glow-strong {
-  box-shadow: 0 8px 34px -2px color-mix(in srgb, var(--accent) 85%, transparent), 0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent), 0 10px 30px rgba(0, 0, 0, 0.35);
+  box-shadow:
+    0 8px calc(34px + var(--beat, 0) * 10px) calc(-2px + var(--beat, 0) * 2px) color-mix(in srgb, var(--accent) calc(85% + var(--beat, 0) * 15%), transparent),
+    0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent),
+    0 10px 30px rgba(0, 0, 0, 0.35);
 }
+/* Per-frame updates; the 0.6 s box-shadow transition would smear them. */
+.island.is-glowing { transition: box-shadow 0.08s linear; }
 .panel > .panel-glow { position: absolute; }
 .panel-glow.glow-subtle { opacity: 0.7; }
 .panel-glow.glow-strong { opacity: 1.3; filter: saturate(1.3); }
@@ -154,5 +163,54 @@
 }
 .island.is-glass.is-glowing.glow-subtle,
 .island.is-glass.is-glowing.glow-strong {
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.1), 0 6px 24px -6px color-mix(in srgb, var(--accent) 55%, transparent);
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.1),
+    0 6px calc(24px + var(--beat, 0) * 7px) calc(-6px + var(--beat, 0) * 1.5px) color-mix(in srgb, var(--accent) calc(55% + var(--beat, 0) * 18%), transparent);
 }
+
+/* ── Music tab: album colours drifting behind everything, swelling a
+   little on each beat (both materials) ─────────────────────────────── */
+.panel > .music-pulse { position: absolute; }
+.music-pulse {
+  inset: -20%;
+  pointer-events: none;
+  background:
+    radial-gradient(45% 55% at 20% 35%, color-mix(in srgb, var(--accent) 55%, transparent), transparent 70%),
+    radial-gradient(40% 50% at 80% 25%, color-mix(in srgb, var(--accent-2) 45%, transparent), transparent 70%),
+    radial-gradient(50% 45% at 60% 85%, color-mix(in srgb, var(--accent) 35%, transparent), transparent 70%);
+  filter: blur(28px) saturate(1.2);
+  opacity: calc(0.32 + var(--level, 0) * 0.22 + var(--beat, 0) * 0.18);
+  transform: scale(calc(1 + var(--beat, 0) * 0.05));
+  transition: opacity 0.12s linear;
+}
+.music-pulse.is-playing { animation: music-drift 18s ease-in-out infinite alternate; }
+.island.is-glass .music-pulse { opacity: calc(0.42 + var(--level, 0) * 0.25 + var(--beat, 0) * 0.2); }
+@keyframes music-drift {
+  0% { background-position: 0% 0%, 0% 0%, 0% 0%; translate: -2% 1%; }
+  50% { translate: 2% -2%; }
+  100% { background-position: 0% 0%, 0% 0%, 0% 0%; translate: -1% 2%; }
+}
+
+/* ── Focus timer ring and the split bubble ─────────────────────────── */
+.timer-ring { position: relative; display: inline-grid; place-items: center; flex-shrink: 0; color: var(--orange); }
+.timer-ring svg { position: absolute; inset: 0; transform: rotate(-90deg); }
+.timer-ring circle { fill: none; stroke-width: 2.4; }
+.timer-ring .track { stroke: color-mix(in srgb, var(--orange) 22%, transparent); }
+.timer-ring .fill { stroke: var(--orange); stroke-linecap: round; transition: stroke-dashoffset 0.9s linear; }
+.timer-ring.is-paused .fill { stroke: color-mix(in srgb, var(--orange) 55%, #888); }
+.timer-ring-icon { width: 58%; height: 58%; display: grid; place-items: center; }
+.timer-ring-icon svg { position: static; transform: none; width: 100%; height: 100%; }
+.timer-ring-text { font-size: 10.5px; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--orange); }
+.timer-bubble {
+  position: absolute;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: #000;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
+  cursor: pointer;
+}
+.island.is-glass ~ .timer-bubble { background: rgba(14, 14, 16, 0.92); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08), 0 6px 18px rgba(0, 0, 0, 0.35); }
+.bubble-neck { position: absolute; border-radius: 999px; background: #000; pointer-events: none; }

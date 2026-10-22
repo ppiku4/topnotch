@@ -8,6 +8,7 @@ import { CONTENT, PRESS, SPRING_ISLAND, SPRING_SNAPPY, tabMotion } from './motio
 import { Artwork, Bars, ClipboardTab, ShelfTab, StatsTab, TimerTab } from './Tabs.jsx';
 import { BluetoothTab, DashboardTab, MixerTab, MusicTab } from './Dashboard.jsx';
 import { useHoverPassthrough } from './useHoverPassthrough.js';
+import { useBeatVars } from './beat.js';
 import { useMedia } from './useMedia.js';
 import {
   formatCountdown, playChime, useActivities, useArtColors, useClock, useBattery, useBatteryEvents, useBluetoothDevices, useClipboard,
@@ -198,7 +199,11 @@ export default function Island() {
     ? lyrics.lines : null;
   // Music playing without pill lyrics: day/time/weather sits between the
   // artwork and the bars instead.
-  const compactInfo = state === 'compact' && !pillLyrics && media?.playing && features.pillInfo !== false && !timerRunning && !privacy.call
+  // Music and the focus timer at once: the island splits, Apple-style. The
+  // pill keeps the music and the timer moves into its own round bubble.
+  const split = state === 'compact' && !!media?.playing && timerRunning && !privacy.call;
+  const pillTimer = timerRunning && !split ? timerState : null;
+  const compactInfo = state === 'compact' && !pillLyrics && media?.playing && features.pillInfo !== false && !pillTimer && !privacy.call
     ? { weather: features.weather ? weather : null } : null;
   // On the left/right edges the resting states are a vertical strip; the
   // panel and live activities keep their horizontal shape.
@@ -284,6 +289,9 @@ export default function Island() {
   } : {};
 
   const glowing = edgeGlow !== 'off' && artColors && media?.playing && state !== 'panel';
+  // The glow and the Music tab's gradient breathe with the music (beat.js
+  // writes --beat on the island each frame).
+  useBeatVars(islandRef, !!media?.playing && (glowing || (state === 'panel' && (activeTab === 'music' || activeTab === 'dashboard'))));
   const style = artColors ? { '--accent': artColors[0], '--accent-2': artColors[1] } : undefined;
 
   return (
@@ -310,6 +318,7 @@ export default function Island() {
           {state === 'panel' && (
             <motion.div key="panel" className="panel" {...CONTENT}>
               {edgeGlow !== 'off' && artColors && (activeTab === 'dashboard' || activeTab === 'music') && media && <div className={`panel-glow glow-${edgeGlow}`} />}
+              {activeTab === 'music' && media && artColors && <div className={`music-pulse${media.playing ? ' is-playing' : ''}`} aria-hidden />}
               <div className="top-bar">
                 <div className="tab-group">
                   {visibleTabs.map(({ id, label, icon: Icon }) => (
@@ -353,16 +362,96 @@ export default function Island() {
           {state === 'activity' && <Activity key={`activity-${activities.current.kind}`} activity={activities.current} levels={levels} hold={hold} />}
           {vertical && state === 'info' && <VerticalInfo key="v-info" weather={features.weather ? weather : null} config={config} />}
           {vertical && state === 'compact' && (
-            <VerticalCompact key="v-compact" media={media} privacy={features.privacy ? privacy : null} timerState={timerRunning ? timerState : null} />
+            <VerticalCompact key="v-compact" media={media} privacy={features.privacy ? privacy : null} timerState={pillTimer} />
           )}
           {!vertical && state === 'info' && <InfoPill key="info" weather={features.weather ? weather : null} config={config} onWidth={onInfoWidth} />}
           {!vertical && state === 'compact' && (
-            <Compact key="compact" media={media} lyrics={pillLyrics} onLyricsWidth={onPillWidth} info={compactInfo} onInfoWidth={onInfoWidth} config={config} privacy={features.privacy ? privacy : null} timerState={timerRunning ? timerState : null} />
+            <Compact key="compact" media={media} lyrics={pillLyrics} onLyricsWidth={onPillWidth} info={compactInfo} onInfoWidth={onInfoWidth} config={config} privacy={features.privacy ? privacy : null} timerState={pillTimer} />
           )}
         </AnimatePresence>
       </motion.div>
+      <AnimatePresence>
+        {split && (
+          <TimerBubble
+            key="timer-bubble"
+            timerState={timerState}
+            edge={edge}
+            before={!isVerticalEdge(edge) && (dock.anchor ?? windowSpan / 2) > windowSpan * 0.72}
+            // Same thickness as the pill it splits from.
+            size={isVerticalEdge(edge) ? target.width : target.height}
+            covered={covered}
+            onEnter={(e) => { setTabState('timer'); handlers.onPointerEnter(e); }}
+            onLeave={handlers.onPointerLeave}
+            onClick={() => { setTabState('timer'); open(); }}
+          />
+        )}
+      </AnimatePresence>
       </div>
     </div>
+  );
+}
+
+// Focus timer as a ring that drains around the timer glyph (or the minutes
+// left, in the bubble), Apple's timer Live Activity style.
+function TimerRing({ timerState, size = 22, showMinutes = false }) {
+  const total = timerState.timer?.total || 1;
+  const left = Math.max(0, Math.min(1, timerState.remaining / total));
+  const r = size / 2 - 2;
+  const length = 2 * Math.PI * r;
+  const minutes = Math.ceil(timerState.remaining / 60000);
+  return (
+    <span className={`timer-ring${timerState.timer?.paused ? ' is-paused' : ''}`} style={{ width: size, height: size }}>
+      <svg viewBox={`0 0 ${size} ${size}`} width={size} height={size}>
+        <circle className="track" cx={size / 2} cy={size / 2} r={r} />
+        <circle className="fill" cx={size / 2} cy={size / 2} r={r} strokeDasharray={length} strokeDashoffset={length * (1 - left)} />
+      </svg>
+      {showMinutes
+        ? <span className="timer-ring-text">{timerState.remaining < 60000 ? Math.ceil(timerState.remaining / 1000) : minutes}</span>
+        : <span className="timer-ring-icon"><TimerIcon /></span>}
+    </span>
+  );
+}
+
+// The detached bubble: grows out of the pill's side through a short "neck"
+// that pinches off (and back in when the timer ends), like the Dynamic
+// Island splitting into two activities.
+function TimerBubble({ timerState, edge, before, size, covered, onEnter, onLeave, onClick }) {
+  const vertical = isVerticalEdge(edge);
+  const gap = 8;
+  // Which way it travels out of the pill.
+  const axis = vertical ? 'y' : 'x';
+  const away = before ? -1 : 1;
+  const place = vertical
+    ? { top: `calc(100% + ${gap}px)`, [edge]: 0 }
+    : { [before ? 'right' : 'left']: `calc(100% + ${gap}px)`, [edge]: 0 };
+  const neck = vertical
+    ? { top: '100%', height: gap + 12, marginTop: -6, width: size * 0.55, [edge]: (size - size * 0.55) / 2 }
+    : { [before ? 'right' : 'left']: '100%', width: gap + 12, [before ? 'marginRight' : 'marginLeft']: -6, height: size * 0.55, [edge]: (size - size * 0.55) / 2 };
+  return (
+    <>
+      <motion.span
+        className="bubble-neck"
+        style={{ ...neck, transformOrigin: before ? 'right center' : vertical ? 'center top' : 'left center' }}
+        initial={{ opacity: 1, [vertical ? 'scaleY' : 'scaleX']: 0.2 }}
+        animate={{ opacity: 0, [vertical ? 'scaleY' : 'scaleX']: 1, transition: { duration: 0.42, ease: [0.32, 0.72, 0, 1] } }}
+        exit={{ opacity: 1, [vertical ? 'scaleY' : 'scaleX']: 1, transition: { duration: 0.2 } }}
+      />
+      <motion.button
+        className="timer-bubble"
+        style={{ ...place, width: size, height: size }}
+        title={`Focus timer · ${formatCountdown(timerState.remaining)} left`}
+        aria-label="Focus timer"
+        initial={{ [axis]: -away * (size + gap) * 0.6, scale: 0.45, opacity: 0 }}
+        animate={{ [axis]: 0, scale: 1, opacity: covered ? 0 : 1 }}
+        exit={{ [axis]: -away * (size + gap) * 0.6, scale: 0.45, opacity: 0, transition: { ...SPRING_ISLAND, opacity: { duration: 0.18, delay: 0.12 } } }}
+        transition={SPRING_ISLAND}
+        onPointerEnter={onEnter}
+        onPointerLeave={onLeave}
+        onClick={onClick}
+      >
+        <TimerRing timerState={timerState} size={size - 8} showMinutes />
+      </motion.button>
+    </>
   );
 }
 
@@ -403,8 +492,8 @@ function VerticalCompact({ media, privacy, timerState }) {
   const call = privacy?.call;
   let top = <span />;
   if (call) top = <span className="v-call" title={call}><PhoneIcon /></span>;
+  else if (timerState && !media?.playing) top = <TimerRing timerState={timerState} size={28} />;
   else if (media) top = <Artwork src={media.art} size={26} />;
-  else if (timerState) top = <span className="compact-timer-icon"><TimerIcon /></span>;
   return (
     <motion.div className="v-compact" {...CONTENT}>
       {top}
@@ -434,8 +523,9 @@ function Compact({ media, lyrics, onLyricsWidth, info, onInfoWidth, config, priv
 
   let left;
   if (call) left = <span className="compact-call"><PhoneIcon /><span>{call}</span></span>;
+  // Paused music steps aside for a running timer.
+  else if (timerState && !media?.playing) left = <TimerRing timerState={timerState} size={24} />;
   else if (media) left = <Artwork src={media.art} size={22} />;
-  else if (timerState) left = <span className="compact-timer-icon"><TimerIcon /></span>;
   else left = <span className="compact-label">{users.join(', ')}</span>;
 
   return (

@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { bridge } from './bridge.js';
+import { getLevel, useLoudness } from './beat.js';
 import { SPRING_SOFT } from './motion.js';
 
 // Seconds into the track right now. SMTC positions are snapshots; extrapolate
@@ -82,27 +83,7 @@ function wordTimings(line, nextTime) {
   });
 }
 
-// Smoothed output loudness (0..1) from the system meter; lyric components
-// turn the meter on while mounted.
-let loudness = 0;
-let meterUsers = 0;
-let stopPeaks = null;
-function useLoudness() {
-  useEffect(() => {
-    if (meterUsers++ === 0) {
-      bridge.setMeter(true);
-      stopPeaks = bridge.onPeak((v) => {
-        const target = Math.min(1, Math.sqrt(Math.max(0, v)) * 1.25);
-        // Gentle attack and slow release: the swell breathes with the song
-        // instead of twitching on every drum hit.
-        loudness += (target - loudness) * (target > loudness ? 0.22 : 0.08);
-      });
-    }
-    return () => {
-      if (--meterUsers === 0) { bridge.setMeter(false); stopPeaks?.(); loudness = 0; }
-    };
-  }, []);
-}
+// Loudness comes from the shared meter in beat.js (also used by the glow).
 
 const clamp01 = (v) => Math.min(1, Math.max(0, v));
 
@@ -128,6 +109,7 @@ function paintWords(elements, words, position) {
     const glow = position < w.start ? 0 : position <= w.end ? p : clamp01(1 - (position - w.end) / 0.6);
     el.style.setProperty('--p', p.toFixed(3));
     // Louder passages push the swell a little and the glow more.
+    const loudness = getLevel();
     const energy = 0.55 + loudness * 0.7;
     el.style.setProperty('--a', (hold * (0.8 + loudness * 0.3)).toFixed(3));
     el.style.setProperty('--h', held.toFixed(3));
