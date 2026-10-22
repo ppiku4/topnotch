@@ -488,6 +488,7 @@ function onHelperEvent(msg) {
     lastNet = { rx: msg.rx, tx: msg.tx, gpu: msg.gpu, cpuTemp: msg.cpuTemp, gpuTemp: msg.gpuTemp, memUsed: msg.memUsed };
   } else if (msg.type === 'file-drag') {
     fileDragActive = !!msg.active;
+    if (!msg.active) fileDragEnded(msg);
   } else if (msg.type === 'bluetooth') {
     const previous = bluetoothDevices;
     bluetoothDevices = msg.devices;
@@ -723,6 +724,20 @@ function stopCoverWatch() {
 
 // macOS: the helper reports file drags from the system drag pasteboard.
 let fileDragActive = false;
+let dragNearActive = false;
+
+// macOS: a drag that reached the notch ended. The window only starts
+// accepting the mouse mid-drag, and macOS doesn't always deliver the drop to
+// it, so the helper's file list is passed on too; the renderer parks the
+// files if they were released over the island (duplicates are ignored).
+function fileDragEnded(msg) {
+  if (!dragNearActive || !notchWindow || notchWindow.isDestroyed() || !features().shelf) return;
+  const paths = Array.isArray(msg.files) ? msg.files.filter((p) => typeof p === 'string' && p) : [];
+  if (!paths.length || !Number.isFinite(msg.x) || !Number.isFinite(msg.y)) return;
+  const b = notchWindow.getBounds();
+  log(`shelf: ${paths.length} file(s) released near the notch`);
+  send('shelf-drop', { paths, x: msg.x - b.x, y: msg.y - b.y });
+}
 
 function startDragWatch() {
   let wasDown = false;
@@ -744,13 +759,13 @@ function startDragWatch() {
       : cursor.x <= b.x + b.width && cursor.x > b.x + b.width - 70 && Math.abs(cursor.y - (b.y + anchor)) < 260;
     if (down && !wasDown) startedOutside = !inZone;
     if (down && startedOutside && inZone && !active) {
-      active = true;
+      active = dragNearActive = true;
       notchWindow.setIgnoreMouseEvents(false);
       if (MAC) notchWindow.moveTop();
       send('drag-near', true);
       log('shelf: file drag reached the notch');
     } else if (!down && active) {
-      active = false;
+      active = dragNearActive = false;
       send('drag-near', false);
     }
     wasDown = down;

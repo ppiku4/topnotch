@@ -43,6 +43,7 @@ contextBridge.exposeInMainWorld('topnotch', {
 
   onShelf: (callback) => subscribe('shelf', callback),
   onDragNear: (callback) => subscribe('drag-near', callback),
+  onShelfDrop: (callback) => subscribe('shelf-drop', callback),
   pathForFile: (file) => { try { return webUtils.getPathForFile(file); } catch (_) { return ''; } },
   addToShelf: (paths) => ipcRenderer.send('shelf-add', paths.map(String)),
   removeFromShelf: (p) => ipcRenderer.send('shelf-remove', String(p)),

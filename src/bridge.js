@@ -32,6 +32,7 @@ export const bridge = window.topnotch ?? {
   clearClipboard: log('clear clipboard'),
   onShelf: off,
   onDragNear: off,
+  onShelfDrop: off,
   pathForFile: () => '',
   addToShelf: log('shelf add'),
   removeFromShelf: log('shelf remove'),
