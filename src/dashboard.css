@@ -209,9 +209,9 @@ button.card:hover, .meters-card:hover { background: rgba(255, 255, 255, 0.075); 
   gap: 12px;
   font-size: 12px;
   font-weight: 600;
-  letter-spacing: 0.42em;
+  letter-spacing: 0.24em;
   color: rgba(255, 255, 255, 0.72);
-  padding-left: 0.42em;
+  padding-left: 0.24em;
 }
 .stats-title i { width: 7px; height: 7px; border-radius: 50%; background: #30d158; box-shadow: 0 0 8px #30d158; }
 .stats-grid { flex: 1; min-height: 0; display: grid; grid-template-columns: repeat(6, 1fr); grid-template-rows: 1fr 1fr; gap: 8px; }

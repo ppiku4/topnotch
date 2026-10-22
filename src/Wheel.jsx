@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { bridge } from './bridge.js';
-import { SPRING_ISLAND, SPRING_SNAPPY } from './motion.js';
+import { SPRING_SNAPPY, SPRING_SOFT } from './motion.js';
 
 // Alt+click wheel: one ring segment per action for the clicked file,
 // with the file in the hub. Engines that aren't installed yet (ffmpeg,
@@ -84,9 +84,11 @@ export default function Wheel() {
       <motion.div
         key={menu.file}
         className={`wheel kind-${menu.kind}`}
-        initial={{ scale: 0.55, opacity: 0, rotate: -12 }}
-        animate={{ scale: 1, opacity: 1, rotate: 0 }}
-        transition={SPRING_ISLAND}
+        // A menu that just appeared settles without overshoot or spin; bounce
+        // is kept for things the user flicked.
+        initial={{ scale: 0.88, opacity: 0 }}
+        animate={{ scale: 1, opacity: 1 }}
+        transition={{ ...SPRING_SOFT, bounce: 0, opacity: { duration: 0.16 } }}
         style={{ width: SIZE, height: SIZE }}
       >
         <svg className="wheel-ring" width={SIZE} height={SIZE} viewBox={`0 0 ${SIZE} ${SIZE}`}>

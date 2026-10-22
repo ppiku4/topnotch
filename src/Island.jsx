@@ -433,7 +433,8 @@ function TimerBubble({ timerState, edge, before, size, covered, onEnter, onLeave
         className="bubble-neck"
         style={{ ...neck, transformOrigin: before ? 'right center' : vertical ? 'center top' : 'left center' }}
         initial={{ opacity: 1, [vertical ? 'scaleY' : 'scaleX']: 0.2 }}
-        animate={{ opacity: 0, [vertical ? 'scaleY' : 'scaleX']: 1, transition: { duration: 0.42, ease: [0.32, 0.72, 0, 1] } }}
+        // Stretches on the same spring as the bubble, so the two move as one.
+        animate={{ opacity: 0, [vertical ? 'scaleY' : 'scaleX']: 1, transition: { ...SPRING_ISLAND, opacity: { duration: 0.42, ease: [0.32, 0.72, 0, 1] } } }}
         exit={{ opacity: 1, [vertical ? 'scaleY' : 'scaleX']: 1, transition: { duration: 0.2 } }}
       />
       <motion.button

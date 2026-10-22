@@ -1,0 +1,34 @@
+/* Accessibility settings from the OS. Loaded last so these win.
+   Framer Motion's springs are handled by MotionConfig in main.jsx; this
+   covers the CSS-driven motion and the glass. */
+
+@media (prefers-reduced-motion: reduce) {
+  /* No looping motion: the bars hold still, the dots stop breathing and the
+     Music tab's colours stop drifting. */
+  .bars.is-playing span { animation: none; height: 8px; }
+  .lyric-dots i { animation: none; }
+  .music-pulse.is-playing { animation: none; }
+  .music-pulse { transform: none; }
+
+  /* Lyric words fade in place instead of rising and swelling. */
+  .w { animation-name: word-fade; transform: none; }
+
+  /* The glow stays steady instead of flashing with the beat (beat.js
+     writes these inline; !important outranks inline styles). */
+  .island { --beat: 0 !important; --level: 0.4 !important; }
+
+  .lyric-track { transition: none; }
+  .controls button:active { transform: none; }
+}
+@keyframes word-fade { from { opacity: 0; } to { opacity: 1; } }
+
+@media (prefers-reduced-transparency: reduce) {
+  /* Dark glass turns nearly solid so text stays readable over busy desktops. */
+  .island.is-glass { background: rgba(14, 14, 16, 0.94); }
+  .island.is-glass ~ .timer-bubble { background: rgb(14, 14, 16); }
+}
+
+@media (prefers-contrast: more) {
+  .island.is-glass { background: rgba(8, 8, 10, 0.96); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.4); }
+  .island.is-glass ~ .timer-bubble { box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.4); }
+}

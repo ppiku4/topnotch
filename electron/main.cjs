@@ -165,7 +165,10 @@ function positionNotch() {
 
 // Nearest edge of the display under the cursor, and how far along it.
 // Within 4% of the centre or an end it snaps there.
-function dockAtCursor(cursor) {
+// grab: how far along the edge the cursor sat from the island's centre when
+// the drag began, so the island keeps that offset instead of jumping to
+// centre itself under the cursor.
+function dockAtCursor(cursor, grab = null) {
   const display = screen.getDisplayNearestPoint(cursor);
   const b = display.bounds;
   const distances = {
@@ -176,7 +179,8 @@ function dockAtCursor(cursor) {
   };
   const edge = Object.keys(distances).reduce((best, e) => (distances[e] < distances[best] ? e : best), 'top');
   const area = edgeArea(display, edge);
-  let offset = isVertical(edge) ? (cursor.y - area.y) / area.height : (cursor.x - area.x) / area.width;
+  const shift = grab && grab.edge === edge && grab.displayId === display.id ? grab.along : 0;
+  let offset = isVertical(edge) ? (cursor.y - shift - area.y) / area.height : (cursor.x - shift - area.x) / area.width;
   offset = Math.max(0, Math.min(1, offset));
   for (const snap of [0, 0.5, 1]) if (Math.abs(offset - snap) < 0.04) offset = snap;
   return { edge, offset, displayId: display.id };
@@ -188,10 +192,22 @@ function startDockDrag() {
   dockDragging = true;
   dock = dockFromConfig();
   sendDock();
+  const startCursor = screen.getCursorScreenPoint();
+  const startArea = edgeArea(displayFor(dock.displayId), dock.edge);
+  let grab = {
+    edge: dock.edge,
+    displayId: dock.displayId,
+    along: isVertical(dock.edge)
+      ? startCursor.y - (startArea.y + dock.offset * startArea.height)
+      : startCursor.x - (startArea.x + dock.offset * startArea.width)
+  };
   dragTimer = setInterval(() => {
     if (!notchWindow || notchWindow.isDestroyed()) return endDockDrag(false);
     if (!isLeftButtonDown()) return endDockDrag(true);
-    const next = dockAtCursor(screen.getCursorScreenPoint());
+    const next = dockAtCursor(screen.getCursorScreenPoint(), grab);
+    // Once it moves to another edge or screen, the old grab point means
+    // nothing there; follow the cursor directly from then on.
+    if (grab && (next.edge !== grab.edge || next.displayId !== grab.displayId)) grab = null;
     if (next.edge !== dock.edge || next.displayId !== dock.displayId || Math.abs(next.offset - dock.offset) > 0.0005) {
       dock = next;
       notchWindow.setBounds(dockLayout().bounds);

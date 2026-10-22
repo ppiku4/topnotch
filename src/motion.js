@@ -36,4 +36,5 @@ export const RISE = {
   animate: { opacity: 1, y: 0, transition: SPRING_SOFT }
 };
 
-export const PRESS = { whileTap: { scale: 0.86 }, transition: SPRING_SNAPPY };
+// A light press: enough to feel, not so deep the icon looks like it jumps.
+export const PRESS = { whileTap: { scale: 0.92 }, transition: SPRING_SNAPPY };
