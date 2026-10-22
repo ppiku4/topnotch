@@ -121,6 +121,11 @@ export default function Island() {
     if (featuresRef.current.bluetooth) activities.push('bluetooth', event, 4000);
   }), [activities.push]);
 
+  // File wheel jobs: stay up while running, linger a few seconds when done.
+  useEffect(() => bridge.onConvertJob((job) => {
+    activities.push('convert', job, job.status === 'running' ? 30 * 60 * 1000 : job.status === 'done' ? 7000 : 9000);
+  }), [activities.push]);
+
   useBatteryEvents(features.charging, (event) => activities.push('battery', event, 3500));
 
   const timerState = useTimer((finished) => {
@@ -147,7 +152,9 @@ export default function Island() {
   }, [dragNear]);
 
   // While the notch is being dragged to a new edge it stays collapsed.
-  const panelOpen = !dock.dragging && (hovered || (features.shelf && (dragNear || dropping)));
+  // A finished conversion keeps the pill under the pointer so "Show" can be clicked.
+  const convertDone = activities.current?.kind === 'convert' && activities.current.data.status === 'done';
+  const panelOpen = !dock.dragging && ((hovered && !convertDone) || (features.shelf && (dragNear || dropping)));
   const stats = useStats(panelOpen && (activeTab === 'stats' || activeTab === 'dashboard'));
   const mixer = useMixer(panelOpen && activeTab === 'mixer');
   const bluetoothDevices = useBluetoothDevices();

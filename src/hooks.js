@@ -50,7 +50,7 @@ export function useSystemLevels(onChange) {
   return levels;
 }
 
-const PRIORITY = { osd: 5, timer: 4, bluetooth: 3, battery: 2 };
+const PRIORITY = { osd: 5, timer: 4, convert: 3.5, bluetooth: 3, battery: 2 };
 
 // Short-lived "live activities" that take over the pill. The highest
 // priority one shows; each expires on its own timer.

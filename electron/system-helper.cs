@@ -2,7 +2,7 @@
 // (C# 5: no string interpolation or null-propagation).
 // Protocol: one command per stdin line, one JSON object per stdout line.
 //   in : volume <0-100> | mute <on|off|toggle> | brightness <0-100> | seek <seconds> <appId?>
-//        stats <on|off> | mixer list | mixer set <pid> <0-100> | mixer mute <pid> <on|off|toggle> | get
+//        stats <on|off> | fileclick <on|off> | mixer list | mixer set <pid> <0-100> | mixer mute <pid> <on|off|toggle> | get
 //   out: {"type":"volume","value":n,"muted":b} | {"type":"brightness","value":n,"supported":b}
 //        {"type":"seek","ok":b} | {"type":"privacy","camera":[..],"microphone":[..]}
 //        {"type":"net","rx":n,"tx":n} | {"type":"bluetooth","devices":[{name,connected,battery}]}
@@ -682,6 +682,202 @@ static class Bluetooth {
     }
 }
 
+// Shift+left click on a file in Explorer or on the desktop opens TopNotch's
+// file wheel. A low-level mouse hook catches Shift+clicks over Explorer's item
+// views and holds them back; a worker thread asks UI Automation which item is
+// under the cursor and maps it to a path. Files are reported to the app; any
+// other click (folders, empty space, headers) is replayed unchanged, so
+// Explorer's own Shift+click still works there.
+static class FileClick {
+    [StructLayout(LayoutKind.Sequential)] struct POINT { public int x, y; }
+    [StructLayout(LayoutKind.Sequential)] struct MSLLHOOKSTRUCT { public POINT pt; public uint mouseData, flags, time; public IntPtr extra; }
+    [StructLayout(LayoutKind.Sequential)] struct MSG { public IntPtr hwnd; public uint message; public IntPtr wParam, lParam; public uint time; public POINT pt; }
+    [StructLayout(LayoutKind.Sequential)] struct MOUSEINPUT { public int dx, dy; public uint mouseData, dwFlags, time; public IntPtr extra; }
+    [StructLayout(LayoutKind.Sequential)] struct INPUT { public uint type; public MOUSEINPUT mi; }
+    delegate IntPtr HookProc(int code, IntPtr wParam, IntPtr lParam);
+
+    [DllImport("user32.dll")] static extern IntPtr SetWindowsHookEx(int id, HookProc proc, IntPtr module, uint thread);
+    [DllImport("user32.dll")] static extern IntPtr CallNextHookEx(IntPtr hook, int code, IntPtr wParam, IntPtr lParam);
+    [DllImport("user32.dll")] static extern int GetMessage(out MSG msg, IntPtr hwnd, uint min, uint max);
+    [DllImport("user32.dll")] static extern short GetAsyncKeyState(int key);
+    [DllImport("user32.dll")] static extern IntPtr WindowFromPoint(POINT pt);
+    [DllImport("user32.dll")] static extern IntPtr GetAncestor(IntPtr hwnd, uint flags);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern int GetClassName(IntPtr hwnd, System.Text.StringBuilder name, int max);
+    [DllImport("user32.dll")] static extern uint SendInput(uint count, INPUT[] inputs, int size);
+    [DllImport("user32.dll")] static extern bool SetCursorPos(int x, int y);
+    [DllImport("kernel32.dll")] static extern IntPtr GetModuleHandle(string name);
+    [DllImport("user32.dll")] static extern bool SetProcessDPIAware();
+
+    const int WH_MOUSE_LL = 14;
+    const int WM_LBUTTONDOWN = 0x0201, WM_LBUTTONUP = 0x0202;
+    const uint LLMHF_INJECTED = 0x1;
+    const int VK_SHIFT = 0x10, VK_CONTROL = 0x11, VK_MENU = 0x12;
+
+    static volatile bool enabled;
+    static HookProc proc;          // kept alive so the GC doesn't collect the callback
+    static bool holding;           // a Shift+click is being held back
+    static POINT heldAt;
+    static readonly System.Collections.Concurrent.BlockingCollection<POINT> queue = new System.Collections.Concurrent.BlockingCollection<POINT>();
+
+    static volatile HashSet<string> extensions = new HashSet<string>();
+
+    // "fileclick on png,jpg,…": only these file types open the wheel; any
+    // other file gets its click back.
+    public static void SetEnabled(bool on, string exts) {
+        var set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (exts != null) foreach (var e in exts.Split(',')) if (e.Length > 0) set.Add("." + e.Trim());
+        extensions = set;
+        enabled = on;
+    }
+
+    // Diagnostics: resolve a screen point without clicking.
+    public static void Probe(int x, int y) {
+        var t = new Thread(() => {
+            string path = null;
+            try { var pt = new POINT(); pt.x = x; pt.y = y; path = Resolve(pt); } catch (Exception e) { Helper.EmitError("file-probe: " + e.Message); }
+            Helper.Emit("{\"type\":\"file-probe\",\"path\":" + (path == null ? "null" : Helper.Str(path)) + "}");
+        });
+        t.SetApartmentState(ApartmentState.STA);
+        t.Start();
+    }
+
+    static string ClassOf(IntPtr hwnd) {
+        var name = new System.Text.StringBuilder(64);
+        GetClassName(hwnd, name, 64);
+        return name.ToString();
+    }
+
+    // Item views: Explorer's DirectUIHWND inside a CabinetWClass window, or the
+    // desktop's SysListView32 inside Progman/WorkerW.
+    static bool OverItemView(POINT pt) {
+        IntPtr hwnd = WindowFromPoint(pt);
+        if (hwnd == IntPtr.Zero) return false;
+        string cls = ClassOf(hwnd);
+        string root = ClassOf(GetAncestor(hwnd, 2 /* GA_ROOT */));
+        if (root == "CabinetWClass") return cls == "DirectUIHWND";
+        if (root == "Progman" || root == "WorkerW") return cls == "SysListView32";
+        return false;
+    }
+
+    static IntPtr Hook(int code, IntPtr wParam, IntPtr lParam) {
+        if (code >= 0) {
+            var info = (MSLLHOOKSTRUCT)Marshal.PtrToStructure(lParam, typeof(MSLLHOOKSTRUCT));
+            int msg = wParam.ToInt32();
+            if ((info.flags & LLMHF_INJECTED) == 0) {
+                if (msg == WM_LBUTTONDOWN && enabled
+                    && (GetAsyncKeyState(VK_SHIFT) & 0x8000) != 0
+                    && (GetAsyncKeyState(VK_CONTROL) & 0x8000) == 0
+                    && (GetAsyncKeyState(VK_MENU) & 0x8000) == 0
+                    && OverItemView(info.pt)) {
+                    holding = true;
+                    heldAt = info.pt;
+                    return (IntPtr)1;
+                }
+                if (msg == WM_LBUTTONUP && holding) {
+                    holding = false;
+                    queue.Add(heldAt);
+                    return (IntPtr)1;
+                }
+            }
+        }
+        return CallNextHookEx(IntPtr.Zero, code, wParam, lParam);
+    }
+
+    // Puts a held-back click back exactly where it happened.
+    static void Replay(POINT pt) {
+        SetCursorPos(pt.x, pt.y);
+        var inputs = new INPUT[2];
+        inputs[0].type = 0; inputs[0].mi.dwFlags = 0x0002; // LEFTDOWN
+        inputs[1].type = 0; inputs[1].mi.dwFlags = 0x0004; // LEFTUP
+        SendInput(2, inputs, Marshal.SizeOf(typeof(INPUT)));
+    }
+
+    static object Invoke(object target, string member, System.Reflection.BindingFlags kind, params object[] args) {
+        return target.GetType().InvokeMember(member, kind, null, target, args);
+    }
+    static object Get(object target, string name) { return Invoke(target, name, System.Reflection.BindingFlags.GetProperty); }
+
+    // Folder shown by the Explorer window that owns hwnd, via Shell.Application.
+    static string ExplorerFolder(IntPtr root) {
+        var shell = Activator.CreateInstance(Type.GetTypeFromProgID("Shell.Application"));
+        var windows = Invoke(shell, "Windows", System.Reflection.BindingFlags.InvokeMethod);
+        int count = (int)Get(windows, "Count");
+        for (int i = 0; i < count; i++) {
+            object window = null;
+            try { window = Invoke(windows, "Item", System.Reflection.BindingFlags.InvokeMethod, i); } catch { }
+            if (window == null) continue;
+            try {
+                if (new IntPtr(Convert.ToInt64(Get(window, "HWND"))) != root) continue;
+                var self = Get(Get(Get(window, "Document"), "Folder"), "Self");
+                return (string)Get(self, "Path");
+            } catch { }
+        }
+        return null;
+    }
+
+    // UI Automation names an item by its display name, which hides the
+    // extension when Explorer is set to; match either form.
+    static string MatchFile(IEnumerable<string> folders, string name) {
+        string loose = null;
+        foreach (var folder in folders) {
+            if (string.IsNullOrEmpty(folder) || !System.IO.Directory.Exists(folder)) continue;
+            foreach (var file in System.IO.Directory.EnumerateFiles(folder)) {
+                if (string.Equals(System.IO.Path.GetFileName(file), name, StringComparison.OrdinalIgnoreCase)) return file;
+                if (loose == null && string.Equals(System.IO.Path.GetFileNameWithoutExtension(file), name, StringComparison.OrdinalIgnoreCase)) loose = file;
+            }
+        }
+        return loose;
+    }
+
+    static string Resolve(POINT pt) {
+        var element = System.Windows.Automation.AutomationElement.FromPoint(new System.Windows.Point(pt.x, pt.y));
+        var walker = System.Windows.Automation.TreeWalker.ControlViewWalker;
+        for (int depth = 0; element != null && depth < 6; depth++) {
+            if (element.Current.ControlType == System.Windows.Automation.ControlType.ListItem) break;
+            element = walker.GetParent(element);
+        }
+        if (element == null || element.Current.ControlType != System.Windows.Automation.ControlType.ListItem) return null;
+        string name = element.Current.Name;
+        if (string.IsNullOrEmpty(name)) return null;
+
+        IntPtr root = GetAncestor(WindowFromPoint(pt), 2);
+        string cls = ClassOf(root);
+        var folders = new List<string>();
+        if (cls == "CabinetWClass") folders.Add(ExplorerFolder(root));
+        else {
+            folders.Add(Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory));
+            folders.Add(Environment.GetFolderPath(Environment.SpecialFolder.CommonDesktopDirectory));
+        }
+        string file = MatchFile(folders, name);
+        if (file == null || !extensions.Contains(System.IO.Path.GetExtension(file))) return null;
+        return file;
+    }
+
+    public static void Start() {
+        SetProcessDPIAware(); // hook and UI Automation then agree on physical pixels
+        var hookThread = new Thread(() => {
+            proc = Hook;
+            SetWindowsHookEx(WH_MOUSE_LL, proc, GetModuleHandle(null), 0);
+            MSG msg;
+            while (GetMessage(out msg, IntPtr.Zero, 0, 0) > 0) { }
+        });
+        hookThread.IsBackground = true;
+        hookThread.Start();
+
+        var worker = new Thread(() => {
+            foreach (var pt in queue.GetConsumingEnumerable()) {
+                string path = null;
+                try { path = Resolve(pt); } catch (Exception e) { Helper.EmitError("file-click: " + e.Message); }
+                if (path != null) Helper.Emit("{\"type\":\"file-click\",\"path\":" + Helper.Str(path) + ",\"x\":" + pt.x + ",\"y\":" + pt.y + "}");
+                else Replay(pt);
+            }
+        });
+        worker.SetApartmentState(ApartmentState.STA);
+        worker.IsBackground = true;
+        worker.Start();
+    }
+}
+
 public static class Helper {
     static readonly object writeLock = new object();
 
@@ -717,6 +913,7 @@ public static class Helper {
         try { Audio.Init(); } catch (Exception e) { EmitError("audio: " + e.Message); }
         try { Brightness.Init(); } catch (Exception e) { EmitError("brightness init: " + e.Message); }
         Media.StartTimeline();
+        FileClick.Start();
         Meter.Start();
         Privacy.Start();
         NetStats.Start();
@@ -737,6 +934,11 @@ public static class Helper {
                     case "seek": Media.Seek(double.Parse(parts[1], CultureInfo.InvariantCulture), parts.Length > 2 ? parts[2] : null); break;
                     case "timeline": Media.ResendTimeline(); break;
                     case "meter": Meter.SetEnabled(parts.Length > 1 && parts[1] == "on"); break;
+                    case "fileclick":
+                        var probe = line.Trim().Split(' ');
+                        if (probe.Length > 3 && probe[1] == "probe") FileClick.Probe(int.Parse(probe[2]), int.Parse(probe[3]));
+                        else FileClick.SetEnabled(probe.Length > 1 && probe[1] == "on", probe.Length > 2 ? probe[2] : null);
+                        break;
                     case "stats": NetStats.SetEnabled(parts.Length > 1 && parts[1] == "on"); break;
                     case "mixer": {
                         // mixer list | mixer set <pid> <0-100> | mixer mute <pid> <on|off|toggle>

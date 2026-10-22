@@ -2,16 +2,22 @@ import React from 'react';
 import { createRoot } from 'react-dom/client';
 import Island from './Island.jsx';
 import Settings from './Settings.jsx';
+import Wheel from './Wheel.jsx';
+import Editor from './Editor.jsx';
 import './styles.css';
 import './dashboard.css';
 import './lyrics.css';
 import './settings.css';
+import './wheel.css';
 
-const isSettings = window.location.hash.startsWith('#settings');
-document.documentElement.classList.add(isSettings ? 'is-settings' : 'is-notch');
+// One bundle, one page per window: #settings, #wheel, #editor or the notch.
+const PAGES = { settings: Settings, wheel: Wheel, editor: Editor };
+const page = window.location.hash.slice(1).split(/[?&]/)[0];
+const Page = PAGES[page] || Island;
+document.documentElement.classList.add(PAGES[page] ? `is-${page}` : 'is-notch');
 
 createRoot(document.getElementById('root')).render(
   <React.StrictMode>
-    {isSettings ? <Settings /> : <Island />}
+    <Page />
   </React.StrictMode>
 );

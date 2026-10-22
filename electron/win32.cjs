@@ -73,4 +73,31 @@ function setRoundedCorners(win) {
   return DwmSetWindowAttribute(hwndOf(win), DWMWA_WINDOW_CORNER_PREFERENCE, [DWMWCP_ROUND], 4);
 }
 
-module.exports = { pressMediaKey, isLeftButtonDown, maximizedForegroundRect, setAcrylic, setRoundedCorners };
+function isKeyDown(vk) {
+  return (GetAsyncKeyState(vk) & 0x8000) !== 0;
+}
+
+// Windows only lets the foreground app hand out focus. The file wheel opens
+// while Explorer is foreground, so attach to its input queue for the switch.
+const kernel32 = koffi.load('kernel32.dll');
+const GetCurrentThreadId = kernel32.func('uint32 __stdcall GetCurrentThreadId()');
+const AttachThreadInput = user32.func('bool __stdcall AttachThreadInput(uint32 idAttach, uint32 idAttachTo, bool fAttach)');
+const SetForegroundWindow = user32.func('bool __stdcall SetForegroundWindow(intptr_t hWnd)');
+const BringWindowToTop = user32.func('bool __stdcall BringWindowToTop(intptr_t hWnd)');
+
+function forceForeground(win) {
+  const hwnd = hwndOf(win);
+  const foreground = GetForegroundWindow();
+  const foreignThread = foreground ? GetWindowThreadProcessId(foreground, [0]) : 0;
+  const ownThread = GetCurrentThreadId();
+  const attach = foreignThread && foreignThread !== ownThread;
+  if (attach) AttachThreadInput(ownThread, foreignThread, true);
+  try {
+    BringWindowToTop(hwnd);
+    return SetForegroundWindow(hwnd);
+  } finally {
+    if (attach) AttachThreadInput(ownThread, foreignThread, false);
+  }
+}
+
+module.exports = { pressMediaKey, isLeftButtonDown, isKeyDown, forceForeground, maximizedForegroundRect, setAcrylic, setRoundedCorners };

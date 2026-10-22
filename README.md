@@ -34,6 +34,12 @@ Built with Electron, React, Vite and framer-motion. Windows 10 (1809) or later; 
   - Focus timer & pomodoro
   - System status (CPU, GPU, memory, download, upload, temperatures)
   - File shelf (drag files to the top of the screen)
+- **File wheel:** Shift+click a file in Explorer or on the desktop for a radial menu of conversions. The copy is saved next to the original and never overwrites it; progress and "Show" appear in the notch.
+  - Images (PNG, JPG, WEBP, TIFF, AVIF, GIF, BMP, ICO, PSD; SVG as input): convert, or open the quick editor to crop (free or fixed ratios), rotate, flip, resize and adjust brightness/contrast/saturation.
+  - Documents: TXT, MD, HTML, DOCX and PDF convert among each other built in. DOC, ODT, RTF and writing DOCX use your installed [LibreOffice](https://www.libreoffice.org/).
+  - Office files, through your installed LibreOffice: Word-style documents (DOC/DOCX/DOCM/DOTX, ODT, RTF, WPD, WPS) to PDF, DOCX, ODT, RTF, DOC, HTML, TXT or MD; spreadsheets (XLSX/XLS/XLSM/XLSB, ODS, CSV, TSV) to XLSX, PDF, CSV, ODS, XLS or HTML; presentations (PPTX/PPT/PPSX/POTX, ODP, Keynote) to PPTX, PDF, ODP or PPT; drawings (VSDX/VSD, ODG, Publisher) to PDF, PNG, SVG or ODG.
+  - Video (to MP4, MKV, WEBM, MOV, GIF, or MP3/WAV/M4A audio) and audio (MP3, WAV, FLAC, M4A, OGG, OPUS) use `ffmpeg` from your PATH, or a copy TopNotch downloads after asking (~88 MB).
+  - Turn it off in Settings → Widgets.
 - **Live activities:** camera/mic in use (and the call app), Bluetooth connect/disconnect, charging, timer finished.
 - **Settings:**
   - display, size, expand on hover or click, keep open, hide behind maximised windows

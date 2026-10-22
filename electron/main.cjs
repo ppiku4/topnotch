@@ -4,7 +4,7 @@ const path = require('path');
 const { fork, spawn } = require('child_process');
 const readline = require('readline');
 const { app, BrowserWindow, Menu, Notification, Tray, ipcMain, nativeImage, powerMonitor, screen, shell } = require('electron');
-const { pressMediaKey, isLeftButtonDown, maximizedForegroundRect, setAcrylic, setRoundedCorners } = require('./win32.cjs');
+const { pressMediaKey, isLeftButtonDown, isKeyDown, forceForeground, maximizedForegroundRect, setAcrylic, setRoundedCorners } = require('./win32.cjs');
 const { createSystemService } = require('./system-service.cjs');
 const { createConfig, sanitizePatch } = require('./config.cjs');
 const { createClipboardHistory } = require('./clipboard.cjs');
@@ -13,6 +13,8 @@ const { fetchLyrics } = require('./lyrics.cjs');
 const { createWeather } = require('./weather.cjs');
 const { createSensors } = require('./sensors.cjs');
 const { checkForUpdate, createInstaller } = require('./updater.cjs');
+const { createConverter, extOf, TARGETS, EXTENSIONS } = require('./convert.cjs');
+const { pathToFileURL } = require('url');
 
 if (!app.requestSingleInstanceLock()) {
   app.quit();
@@ -63,6 +65,7 @@ let statsTimer = null;
 let weather = null;
 let sensors = null;
 let installer = null;
+let converter = null;
 let lhmCpuTemp = null;
 let lastWeather = null;
 let mixerTimer = null;
@@ -380,6 +383,9 @@ function updateLyrics() {
 function onHelperEvent(msg) {
   if (msg.type === 'ready') {
     bluetoothDevices = null; // the first scan after a restart is a baseline
+    applyFileWheel();
+  } else if (msg.type === 'file-click') {
+    if (features().fileWheel && typeof msg.path === 'string') openWheel(msg.path, msg).catch((error) => log('wheel: ' + error.message));
   } else if (msg.type === 'privacy') {
     const users = [...new Set([...msg.camera, ...msg.microphone])];
     lastPrivacy = { camera: msg.camera, microphone: msg.microphone, call: users.find((a) => CALL_APPS.test(a)) || null };
@@ -802,6 +808,217 @@ ipcMain.on('lyrics-resync', (event) => {
   updateLyrics();
 });
 
+// ── File wheel (Shift+click a file) and the image editor ──────────────────
+
+const WHEEL_SIZE = 340;
+let wheelWindow = null;
+let wheelMenu = null;
+let editorWindow = null;
+let editorState = null;      // { file, mode }
+let wheelWatch = null;
+const convertedFiles = new Set(); // outputs "Show in folder" may reveal
+
+function applyFileWheel() {
+  systemService?.setFileClick(!!features().fileWheel, EXTENSIONS);
+}
+
+function createWheelWindow() {
+  wheelWindow = new BrowserWindow({
+    width: WHEEL_SIZE,
+    height: WHEEL_SIZE,
+    frame: false,
+    transparent: true,
+    backgroundColor: '#00000000',
+    hasShadow: false,
+    resizable: false,
+    movable: false,
+    minimizable: false,
+    maximizable: false,
+    skipTaskbar: true,
+    alwaysOnTop: true,
+    show: false,
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.cjs'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true
+    }
+  });
+  wheelWindow.setAlwaysOnTop(true, 'pop-up-menu');
+  wheelWindow.on('blur', hideWheel);
+  wheelWindow.on('closed', () => { wheelWindow = null; });
+  loadPage(wheelWindow, 'wheel');
+  return new Promise((resolve) => wheelWindow.webContents.once('did-finish-load', resolve));
+}
+
+function hideWheel() {
+  stopWheelWatch();
+  if (wheelWindow && !wheelWindow.isDestroyed() && wheelWindow.isVisible()) wheelWindow.hide();
+}
+
+// Focus can't be relied on (Windows may refuse it), so watch the mouse and
+// Esc directly: a press outside the wheel, or Esc, closes it.
+const VK_ESCAPE = 0x1b;
+const WATCHED_BUTTONS = [0x01, 0x02, 0x04]; // left, right, middle
+function startWheelWatch() {
+  stopWheelWatch();
+  let held = WATCHED_BUTTONS.map(isKeyDown);
+  wheelWatch = setInterval(() => {
+    if (!wheelWindow || wheelWindow.isDestroyed() || !wheelWindow.isVisible()) return stopWheelWatch();
+    if (isKeyDown(VK_ESCAPE)) return hideWheel();
+    const now = WATCHED_BUTTONS.map(isKeyDown);
+    const pressed = now.some((down, i) => down && !held[i]);
+    held = now;
+    if (!pressed) return undefined;
+    const { x, y } = screen.getCursorScreenPoint();
+    const b = wheelWindow.getBounds();
+    const r = WHEEL_SIZE / 2;
+    // The ring is round: corners of the square window count as outside.
+    if (Math.hypot(x - (b.x + r), y - (b.y + r)) > r) hideWheel();
+    return undefined;
+  }, 25);
+}
+function stopWheelWatch() {
+  clearInterval(wheelWatch);
+  wheelWatch = null;
+}
+
+async function openWheel(file, physical) {
+  const menu = converter.menuFor(file);
+  if (!menu) return;
+  wheelMenu = { ...menu, ffmpegSize: `${converter.ffmpegInfo.size} download` };
+  if (!wheelWindow || wheelWindow.isDestroyed()) await createWheelWindow();
+  // The helper reports physical pixels; centre the wheel on the click.
+  const point = screen.screenToDipPoint({ x: physical.x, y: physical.y });
+  const area = screen.getDisplayNearestPoint(point).workArea;
+  const x = Math.round(Math.max(area.x, Math.min(area.x + area.width - WHEEL_SIZE, point.x - WHEEL_SIZE / 2)));
+  const y = Math.round(Math.max(area.y, Math.min(area.y + area.height - WHEEL_SIZE, point.y - WHEEL_SIZE / 2)));
+  wheelWindow.setBounds({ x, y, width: WHEEL_SIZE, height: WHEEL_SIZE });
+  wheelWindow.webContents.send('wheel-menu', wheelMenu);
+  wheelWindow.show();
+  try { forceForeground(wheelWindow); } catch (error) { log('wheel focus: ' + error.message); }
+  wheelWindow.focus();
+  startWheelWatch();
+}
+
+const fromWheel = (event) => wheelWindow && !wheelWindow.isDestroyed() && event.sender === wheelWindow.webContents;
+const fromEditor = (event) => editorWindow && !editorWindow.isDestroyed() && event.sender === editorWindow.webContents;
+
+function startConvert(file, target) {
+  converter.convert(file, target).catch(() => {}); // progress and errors arrive as jobs
+}
+
+function onConvertJob(job) {
+  if (job.output) convertedFiles.add(job.output);
+  send('convert-job', job);
+}
+
+// Chromium prints HTML to PDF; relative images resolve next to the source.
+async function renderPdf(html, sourceFile) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'topnotch-pdf-'));
+  const page = path.join(dir, 'page.html');
+  const base = `<base href="${pathToFileURL(path.dirname(sourceFile) + path.sep).href}">`;
+  fs.writeFileSync(page, /<head[^>]*>/i.test(html) ? html.replace(/<head[^>]*>/i, (m) => m + base) : base + html);
+  const win = new BrowserWindow({ show: false, webPreferences: { javascript: false, sandbox: true, contextIsolation: true } });
+  try {
+    await win.loadFile(page);
+    return await win.webContents.printToPDF({ pageSize: 'A4', printBackground: true, margins: { marginType: 'default' } });
+  } finally {
+    win.destroy();
+    fs.promises.rm(dir, { recursive: true, force: true }).catch(() => {});
+  }
+}
+
+function openEditor(file, mode) {
+  editorState = { file, mode };
+  if (editorWindow && !editorWindow.isDestroyed()) {
+    editorWindow.webContents.send('editor-open', editorState);
+    editorWindow.show();
+    editorWindow.focus();
+    return;
+  }
+  editorWindow = new BrowserWindow({
+    width: 1080,
+    height: 720,
+    minWidth: 760,
+    minHeight: 520,
+    title: 'TopNotch Editor',
+    icon: path.join(ASSETS, 'icon.png'),
+    backgroundColor: '#141416',
+    frame: false,
+    autoHideMenuBar: true,
+    show: false,
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.cjs'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true
+    }
+  });
+  editorWindow.once('ready-to-show', () => editorWindow.show());
+  editorWindow.on('closed', () => { editorWindow = null; editorState = null; });
+  loadPage(editorWindow, 'editor');
+}
+
+ipcMain.handle('wheel-pick', async (event, id) => {
+  if (!fromWheel(event) || !wheelMenu || typeof id !== 'string') return null;
+  const action = wheelMenu.actions.find((a) => a.id === id);
+  if (!action) return null;
+  if (action.id === 'edit' || action.id === 'crop') {
+    hideWheel();
+    openEditor(wheelMenu.file, action.id);
+    return { ok: true };
+  }
+  const engines = converter.engines();
+  if (action.needs && !engines[action.needs]) return { needs: action.needs };
+  hideWheel();
+  startConvert(wheelMenu.file, action.target);
+  return { ok: true };
+});
+ipcMain.handle('ffmpeg-download', async (event) => {
+  if (!fromWheel(event)) return { ok: false };
+  try {
+    await converter.downloadFfmpeg((progress) => wheelWindow?.webContents.send('ffmpeg-progress', progress));
+    if (wheelMenu) wheelMenu = { ...wheelMenu, ...converter.menuFor(wheelMenu.file) };
+    return { ok: true };
+  } catch (error) {
+    log('ffmpeg download: ' + error.message);
+    return { ok: false, error: error.message };
+  }
+});
+ipcMain.on('wheel-close', (event) => { if (fromWheel(event)) hideWheel(); });
+ipcMain.on('open-libreoffice', (event) => {
+  if (!fromWheel(event)) return;
+  hideWheel();
+  shell.openExternal(converter.libreOfficeUrl);
+});
+ipcMain.on('show-converted', (event, file) => {
+  if (fromNotch(event) && convertedFiles.has(file) && fs.existsSync(file)) shell.showItemInFolder(file);
+});
+
+ipcMain.handle('editor-get', async (event) => {
+  if (!fromEditor(event) || !editorState) return null;
+  try {
+    const { file, mode } = editorState;
+    return { file, name: path.basename(file), mode, ext: extOf(file), targets: TARGETS.image, image: await converter.previewImage(file) };
+  } catch (error) {
+    return { error: error.message };
+  }
+});
+ipcMain.handle('editor-save', async (event, png, target) => {
+  if (!fromEditor(event) || !editorState || !(png instanceof Uint8Array) || typeof target !== 'string') return { ok: false };
+  try {
+    const out = await converter.saveEdited(editorState.file, Buffer.from(png), target);
+    return { ok: true, output: out };
+  } catch (error) {
+    return { ok: false, error: error.message };
+  }
+});
+ipcMain.on('editor-reveal', (event, file) => {
+  if (fromEditor(event) && convertedFiles.has(file)) shell.showItemInFolder(file);
+});
+ipcMain.on('editor-close', (event) => { if (fromEditor(event)) editorWindow.close(); });
+
 // ── Lifecycle ─────────────────────────────────────────────────────────────
 
 app.whenReady().then(() => {
@@ -810,6 +1027,7 @@ app.whenReady().then(() => {
   clipboardHistory = createClipboardHistory({ dir, onChange: (items) => send('clipboard', items) });
   shelf = createShelf({ dir, onChange: (items) => send('shelf', items) });
   sensors = createSensors({ dir, log });
+  converter = createConverter({ dir, log, renderPdf, onJob: onConvertJob });
   installer = createInstaller({ app, shell, log, onProgress: (progress) => broadcast('update-progress', progress) });
   weather = createWeather({
     getConfig: () => config.get(),
@@ -835,6 +1053,7 @@ app.whenReady().then(() => {
   config.onChange((current) => {
     applyConfig(current);
     if (current.displayId !== previous.displayId || current.dockEdge !== previous.dockEdge || current.dockOffset !== previous.dockOffset) positionNotch();
+    if (current.features.fileWheel !== previous.features.fileWheel) applyFileWheel();
     if (current.features.lyrics && !previous.features.lyrics) { lyricsKey = null; updateLyrics(); }
     if (current.weatherCity !== previous.weatherCity || current.temperatureUnit !== previous.temperatureUnit) weather.reset();
     previous = current;

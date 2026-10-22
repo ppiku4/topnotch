@@ -78,5 +78,20 @@ contextBridge.exposeInMainWorld('topnotch', {
   installSensors: () => ipcRenderer.invoke('sensors-install'),
   startSensors: () => ipcRenderer.invoke('sensors-start'),
   setSensorsAtSignIn: (on) => ipcRenderer.invoke('sensors-at-sign-in', !!on),
-  onWindowBlur: (callback) => subscribe('window-blur', callback)
+  onWindowBlur: (callback) => subscribe('window-blur', callback),
+
+  onWheelMenu: (callback) => subscribe('wheel-menu', callback),
+  wheelPick: (id) => ipcRenderer.invoke('wheel-pick', String(id)),
+  closeWheel: () => ipcRenderer.send('wheel-close'),
+  downloadFfmpeg: () => ipcRenderer.invoke('ffmpeg-download'),
+  onFfmpegProgress: (callback) => subscribe('ffmpeg-progress', callback),
+  openLibreOffice: () => ipcRenderer.send('open-libreoffice'),
+  onConvertJob: (callback) => subscribe('convert-job', callback),
+  showConverted: (file) => ipcRenderer.send('show-converted', String(file)),
+
+  getEditorImage: () => ipcRenderer.invoke('editor-get'),
+  onEditorOpen: (callback) => subscribe('editor-open', callback),
+  saveEdited: (png, target) => ipcRenderer.invoke('editor-save', new Uint8Array(png), String(target)),
+  revealEdited: (file) => ipcRenderer.send('editor-reveal', String(file)),
+  closeEditor: () => ipcRenderer.send('editor-close')
 });

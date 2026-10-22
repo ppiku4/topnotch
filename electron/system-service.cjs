@@ -46,7 +46,7 @@ function createSystemService({ onLevels, onEvent = () => {}, log = console.log }
       levels.brightness = msg.supported ? msg.value : null;
       levels.brightnessSupported = msg.supported;
       onLevels({ ...levels }, changed ? 'brightness' : null);
-    } else if (msg.type === 'privacy' || msg.type === 'net' || msg.type === 'bluetooth' || msg.type === 'timeline' || msg.type === 'mixer' || msg.type === 'peak') {
+    } else if (msg.type === 'privacy' || msg.type === 'net' || msg.type === 'bluetooth' || msg.type === 'timeline' || msg.type === 'mixer' || msg.type === 'peak' || msg.type === 'file-click') {
       onEvent(msg);
     }
   }
@@ -67,6 +67,7 @@ function createSystemService({ onLevels, onEvent = () => {}, log = console.log }
     listMixer: () => command('mixer list'),
     resendTimeline: () => command('timeline'),
     setMeter: (on) => command(on ? 'meter on' : 'meter off'),
+    setFileClick: (on, exts = []) => command(on ? `fileclick on ${exts.filter((e) => /^[a-z0-9]+$/.test(e)).join(',')}` : 'fileclick off'),
     setAppVolume: (pid, value) => command(`mixer set ${pid} ${clampPercent(value)}`),
     toggleAppMute: (pid) => command(`mixer mute ${pid} toggle`),
     seek: (seconds, appId) => command(`seek ${Math.max(0, seconds).toFixed(3)}${appId ? ' ' + appId : ''}`),

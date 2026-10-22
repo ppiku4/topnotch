@@ -35,7 +35,8 @@ const DEFAULTS = {
     timer: true,
     stats: true,
     bluetooth: true,
-    charging: true
+    charging: true,
+    fileWheel: true
   }
 };
 

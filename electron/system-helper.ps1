@@ -21,7 +21,10 @@ $refs = @(
     (Join-Path $framework 'System.Runtime.dll'),
     (Join-Path $env:WINDIR 'System32\WinMetadata\Windows.Foundation.winmd'),
     (Join-Path $env:WINDIR 'System32\WinMetadata\Windows.Media.winmd'),
-    (Join-Path $env:WINDIR 'System32\WinMetadata\Windows.Devices.winmd')
+    (Join-Path $env:WINDIR 'System32\WinMetadata\Windows.Devices.winmd'),
+    (Join-Path $framework 'WPF\UIAutomationClient.dll'),
+    (Join-Path $framework 'WPF\UIAutomationTypes.dll'),
+    (Join-Path $framework 'WPF\WindowsBase.dll')
 )
 
 try {

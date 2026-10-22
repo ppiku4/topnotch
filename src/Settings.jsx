@@ -264,7 +264,8 @@ const WIDGETS = [
   ['timer', CoffeeIcon, 'Focus timer', 'Countdowns and pomodoro with a chime when done.'],
   ['stats', PulseIcon, 'System', 'Processor, memory and network speed.'],
   ['bluetooth', BluetoothIcon, 'Bluetooth', 'Paired devices and connect/disconnect pop-ups.'],
-  ['charging', BoltIcon, 'Charging pop-ups', 'Laptop plug, unplug and low battery.']
+  ['charging', BoltIcon, 'Charging pop-ups', 'Laptop plug, unplug and low battery.'],
+  ['fileWheel', PointerIcon, 'Shift+click file wheel', 'Shift+click a file in Explorer or on the desktop to convert, crop or edit it.']
 ];
 
 function Widgets({ config }) {
@@ -296,6 +297,7 @@ const TIPS = [
   [ExpandIcon, 'Move it', 'Press and drag the notch (or the empty part of its header) to any screen edge.'],
   [TrayIcon, 'Park files', "Drag files to the notch's edge to drop them on the shelf."],
   [ExpandIcon, 'Seek a song', 'Click anywhere on the progress bar to jump to that point.'],
+  [PointerIcon, 'Convert a file', 'Shift+click an image, document, spreadsheet, presentation, video or song in Explorer. Pick a format on the wheel; the copy lands next to the original.'],
   [LyricsIcon, 'Jump to a lyric', 'In the Music tab, click any line to play from there.'],
   [CloseIcon, 'Quit', 'Right-click the tray icon and choose Quit TopNotch.']
 ];

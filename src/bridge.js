@@ -64,5 +64,18 @@ export const bridge = window.topnotch ?? {
   installSensors: async () => ({ ok: false }),
   startSensors: async () => ({ ok: false }),
   setSensorsAtSignIn: async () => ({ ok: false }),
-  onWindowBlur: off
+  onWindowBlur: off,
+  onWheelMenu: off,
+  wheelPick: async () => null,
+  closeWheel: () => {},
+  downloadFfmpeg: async () => ({ ok: false, error: 'not available in the browser preview' }),
+  onFfmpegProgress: off,
+  openLibreOffice: () => {},
+  onConvertJob: off,
+  showConverted: log('show converted'),
+  getEditorImage: async () => null,
+  onEditorOpen: off,
+  saveEdited: async () => ({ ok: false, error: 'not available in the browser preview' }),
+  revealEdited: () => {},
+  closeEditor: () => {}
 };
