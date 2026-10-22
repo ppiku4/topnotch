@@ -10,6 +10,7 @@ const path = require('path');
 const crypto = require('crypto');
 const { spawn, execFile } = require('child_process');
 const { createBackgroundRemover } = require('./bgremove.cjs');
+const { createLibreOffice } = require('./engines.cjs');
 
 const EXT_ALIASES = { jpeg: 'jpg', jpe: 'jpg', tif: 'tiff', htm: 'html', markdown: 'md', aif: 'aiff', text: 'txt' };
 const KINDS = {
@@ -344,18 +345,6 @@ const OFFICE_IMPORT = {
   tsv: 'Text - txt - csv (StarCalc):9,34,76'
 };
 
-function findLibreOffice() {
-  if (MAC) {
-    const app = '/Applications/LibreOffice.app/Contents/MacOS/soffice';
-    return fs.existsSync(app) ? app : null;
-  }
-  const roots = [process.env.ProgramFiles, process.env['ProgramFiles(x86)'], process.env.LOCALAPPDATA && path.join(process.env.LOCALAPPDATA, 'Programs')].filter(Boolean);
-  for (const root of roots) {
-    const exe = path.join(root, 'LibreOffice', 'program', 'soffice.exe');
-    if (fs.existsSync(exe)) return exe;
-  }
-  return null;
-}
 
 function run(exe, args, { onStdout, timeout = 0 } = {}) {
   return new Promise((resolve, reject) => {
@@ -382,7 +371,8 @@ async function officeConvert(soffice, file, ext, out) {
       source = path.join(work, path.basename(file, path.extname(file)) + '.html');
       await fs.promises.writeFile(source, await documentHtml(file));
     }
-    const profile = 'file:///' + path.join(work, 'profile').replace(/\\/g, '/');
+    // file:///C:/… on Windows, file:///private/var/… on macOS.
+    const profile = require('url').pathToFileURL(path.join(work, 'profile')).href;
     const args = [`-env:UserInstallation=${profile}`, '--headless', '--norestore', '--nologo'];
     const filter = OFFICE_FILTERS[kindOf(file)]?.[ext];
     if (!filter) throw new Error(`Can't convert to .${ext}`);
@@ -449,7 +439,7 @@ async function ffmpegConvert(ffmpeg, file, ext, out, onProgress) {
 
 // ── Service ───────────────────────────────────────────────────────────────
 
-function createConverter({ dir, log, renderPdf, onJob, getSettings, onModelStatus }) {
+function createConverter({ dir, log, renderPdf, onJob, getSettings, onModelStatus, onEngineStatus = () => {} }) {
   const vendor = path.join(dir, 'vendor', 'ffmpeg');
   const vendorExe = path.join(vendor, FFMPEG.exe);
   let ffmpegOnPath;
@@ -479,10 +469,60 @@ function createConverter({ dir, log, renderPdf, onJob, getSettings, onModelStatu
     return null;
   }
 
-  const remover = createBackgroundRemover({ dir, log, getSettings, onStatus: onModelStatus });
+  const remover = createBackgroundRemover({ dir, log, getSettings, onStatus: (status) => { onModelStatus?.(status); onEngineStatus(engineStatus()); } });
+  const office = createLibreOffice({ dir, log });
+  const findLibreOffice = office.find;
+  const installs = new Map(); // engine id → progress 0..1 while installing
+  const failures = new Map(); // engine id → last error message
 
   function engines() {
     return { ffmpeg: !!ffmpeg(), office: !!findLibreOffice(), bgmodel: remover.installed() };
+  }
+
+  // What the first-run setup and Settings show: each engine, whether it's
+  // ready (downloaded or already on the system) and any install progress.
+  function engineStatus() {
+    const entry = (id, label, about, size, ready, source) => ({
+      id, label, about, size, ready, source,
+      progress: installs.has(id) ? installs.get(id) : null,
+      error: failures.get(id) || null
+    });
+    const ff = ffmpeg();
+    const lo = findLibreOffice();
+    return [
+      entry('ffmpeg', 'ffmpeg', 'Video and audio', FFMPEG_SIZE, !!ff, ff ? (ff === vendorExe ? 'downloaded' : 'system') : null),
+      entry('libreoffice', 'LibreOffice', 'Word, Excel, PowerPoint and other office files', office.info.size, !!lo, lo ? (office.bundled() && lo.includes('vendor') ? 'downloaded' : 'system') : null),
+      entry('bgmodel', `${remover.label()} model`, 'Remove background', remover.size(), remover.installed(), remover.installed() ? 'downloaded' : null)
+    ];
+  }
+
+  function installEngine(id, onProgress) {
+    const step = { ffmpeg: downloadFfmpeg, libreoffice: office.install, bgmodel: (p) => remover.download(undefined, p) }[id];
+    if (!step) return Promise.reject(new Error('Unknown engine'));
+    failures.delete(id);
+    installs.set(id, 0);
+    onEngineStatus(engineStatus());
+    let last = 0;
+    return step((progress) => {
+      installs.set(id, progress);
+      onProgress?.(progress);
+      if (Date.now() - last > 200) { last = Date.now(); onEngineStatus(engineStatus()); }
+    }).catch((error) => {
+      failures.set(id, String(error.message || error).split(/\r?\n/)[0].slice(0, 160));
+      log(`engine ${id}: ${error.message}`);
+      throw error;
+    }).finally(() => {
+      installs.delete(id);
+      onEngineStatus(engineStatus());
+    });
+  }
+
+  // First run: everything missing, one after another (smallest first).
+  async function installMissing() {
+    for (const engine of engineStatus()) {
+      if (!engine.ready) await installEngine(engine.id).catch(() => {});
+    }
+    return engineStatus().every((e) => e.ready);
   }
 
   // What the wheel offers for a file.
@@ -531,6 +571,8 @@ function createConverter({ dir, log, renderPdf, onJob, getSettings, onModelStatu
           fs.mkdirSync(vendor, { recursive: true });
           await fs.promises.writeFile(vendorExe, require('zlib').gunzipSync(await fs.promises.readFile(zip)));
           await fs.promises.chmod(vendorExe, 0o755);
+          // Apple Silicon kills unsigned binaries; an ad-hoc signature is enough.
+          await run('/usr/bin/codesign', ['--force', '--sign', '-', vendorExe]);
           log(`ffmpeg ${FFMPEG_VERSION} installed`);
           return vendorExe;
         }
@@ -577,8 +619,9 @@ function createConverter({ dir, log, renderPdf, onJob, getSettings, onModelStatu
   }
 
   function downloadEngine(name, onProgress) {
-    if (name === 'ffmpeg') return downloadFfmpeg(onProgress);
-    if (name === 'bgmodel') return remover.download(undefined, onProgress);
+    if (name === 'ffmpeg') return installEngine('ffmpeg', onProgress);
+    if (name === 'office') return installEngine('libreoffice', onProgress);
+    if (name === 'bgmodel') return installEngine('bgmodel', onProgress);
     return Promise.reject(new Error('Unknown download'));
   }
 
@@ -655,7 +698,10 @@ function createConverter({ dir, log, renderPdf, onJob, getSettings, onModelStatu
     downloadEngine,
     removeBackground,
     removeBackgroundImage,
-    downloadSizes: () => ({ ffmpeg: FFMPEG_SIZE, bgmodel: `${remover.label()} · ${remover.size()}` }),
+    downloadSizes: () => ({ ffmpeg: FFMPEG_SIZE, office: `LibreOffice · ${office.info.size}`, bgmodel: `${remover.label()} · ${remover.size()}` }),
+    engineStatus,
+    installEngine,
+    installMissing,
     models: { status: remover.status, download: remover.download, remove: remover.remove },
     libreOfficeUrl: LIBREOFFICE_URL
   };

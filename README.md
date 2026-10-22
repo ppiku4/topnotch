@@ -36,9 +36,10 @@ Built with Electron, React, Vite and framer-motion. Windows 10 (1809) or later; 
   - File shelf (drag files to the top of the screen)
 - **File wheel:** Alt+click a file in Explorer or on the desktop for a radial menu of conversions. The copy is saved next to the original and never overwrites it; progress and "Show" appear in the notch.
   - Images (PNG, JPG, WEBP, TIFF, AVIF, GIF, BMP, ICO, PSD; SVG as input): convert, **Remove BG** (on-device AI: ISNet or BiRefNet, chosen and downloaded in Settings → General, on CPU or GPU; also in the editor), or open the quick editor to crop (free or fixed ratios), rotate, flip, resize and adjust brightness/contrast/saturation.
-  - Documents: TXT, MD, HTML, DOCX and PDF convert among each other built in. DOC, ODT, RTF and writing DOCX use your installed [LibreOffice](https://www.libreoffice.org/).
-  - Office files, through your installed LibreOffice: Word-style documents (DOC/DOCX/DOCM/DOTX, ODT, RTF, WPD, WPS) to PDF, DOCX, ODT, RTF, DOC, HTML, TXT or MD; spreadsheets (XLSX/XLS/XLSM/XLSB, ODS, CSV, TSV) to XLSX, PDF, CSV, ODS, XLS or HTML; presentations (PPTX/PPT/PPSX/POTX, ODP, Keynote) to PPTX, PDF, ODP or PPT; drawings (VSDX/VSD, ODG, Publisher) to PDF, PNG, SVG or ODG.
+  - Documents: TXT, MD, HTML, DOCX and PDF convert among each other built in. DOC, ODT, RTF and writing DOCX use [LibreOffice](https://www.libreoffice.org/).
+  - Office files, through LibreOffice: Word-style documents (DOC/DOCX/DOCM/DOTX, ODT, RTF, WPD, WPS) to PDF, DOCX, ODT, RTF, DOC, HTML, TXT or MD; spreadsheets (XLSX/XLS/XLSM/XLSB, ODS, CSV, TSV) to XLSX, PDF, CSV, ODS, XLS or HTML; presentations (PPTX/PPT/PPSX/POTX, ODP, Keynote) to PPTX, PDF, ODP or PPT; drawings (VSDX/VSD, ODG, Publisher) to PDF, PNG, SVG or ODG.
   - Video (to MP4, MKV, WEBM, MOV, GIF, or MP3/WAV/M4A audio) and audio (MP3, WAV, FLAC, M4A, OGG, OPUS) use `ffmpeg` from your PATH, or a copy TopNotch downloads after asking (~88 MB).
+  - **First run:** TopNotch downloads what the wheel needs (ffmpeg, LibreOffice ~350 MB, and the ISNet background-removal model) and shows progress; copies already installed are used instead. Each download is checked against a pinned SHA-256. Settings → General shows their status and retries failed ones.
   - Turn it off in Settings → Widgets.
 - **Live activities:** camera/mic in use (and the call app), Bluetooth connect/disconnect, charging, timer finished.
 - **Settings:**
@@ -59,6 +60,7 @@ macOS asks once for each of these, when the feature first needs it:
 
 - **Control Finder** (Automation): for the Option+click file wheel, to ask Finder which file you clicked.
 - **Bluetooth**: for the Bluetooth tab and battery levels.
+- **Desktop, Documents and Downloads** (and external drives): the first time you convert a file there, so TopNotch can read it and save the converted copy next to it.
 
 On macOS:
 - **Not available:** the per-app volume Mixer, CPU temperature and "hide behind maximised windows".

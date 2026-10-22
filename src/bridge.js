@@ -86,7 +86,13 @@ export const bridge = window.topnotch ?? {
   getAiModels: async () => null,
   downloadAiModel: async () => ({ ok: false }),
   deleteAiModel: async () => ({ ok: false }),
-  onAiModels: off
+  onAiModels: off,
+  getEngines: async () => null,
+  installEngine: async () => ({ ok: false }),
+  installMissingEngines: async () => ({ ok: false }),
+  onEngines: off,
+  closeSetup: () => {},
+  openSetup: () => {}
 };
 
 // macOS builds hide Windows-only features and say Option instead of Alt.

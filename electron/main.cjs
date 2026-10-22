@@ -50,6 +50,7 @@ const CALL_APPS = /zoom|teams|discord|slack|skype|webex|whatsapp|telegram|signal
 
 let notchWindow = null;
 let settingsWindow = null;
+let setupWindow = null;
 let tray = null;
 let mediaWorker = null;
 let lastMedia = null;
@@ -267,6 +268,47 @@ function createNotchWindow() {
   });
 
   loadPage(notchWindow);
+}
+
+// ── First run: download the conversion engines ────────────────────────────
+// ffmpeg, LibreOffice and the background-removal model aren't in the
+// installer; the first launch fetches whatever's missing (skipping copies
+// already on the system) and shows progress. Closing the window lets it
+// carry on in the background; Settings → General can retry later.
+
+function openSetup() {
+  if (setupWindow && !setupWindow.isDestroyed()) { setupWindow.show(); setupWindow.focus(); return; }
+  setupWindow = new BrowserWindow({
+    width: 520,
+    height: 470,
+    resizable: false,
+    title: 'Set up TopNotch',
+    icon: path.join(ASSETS, 'icon.png'),
+    backgroundColor: '#141416',
+    frame: false,
+    show: false,
+    webPreferences: { preload: path.join(__dirname, 'preload.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: true }
+  });
+  setupWindow.once('ready-to-show', () => setupWindow.show());
+  setupWindow.on('closed', () => { setupWindow = null; });
+  loadPage(setupWindow, 'setup');
+}
+
+let installingMissing = null;
+function installMissingEngines() {
+  if (!installingMissing) {
+    installingMissing = converter.installMissing().then((complete) => {
+      if (complete) config.set({ enginesSetup: 'done' });
+      return complete;
+    }).finally(() => { installingMissing = null; });
+  }
+  return installingMissing;
+}
+
+function sendEngines(status) {
+  for (const win of [setupWindow, settingsWindow]) {
+    if (win && !win.isDestroyed()) win.webContents.send('engines', status);
+  }
 }
 
 // ── Settings window + tray ────────────────────────────────────────────────
@@ -720,7 +762,7 @@ function startDragWatch() {
 const fromNotch = (event) => BrowserWindow.fromWebContents(event.sender) === notchWindow;
 const fromOurWindows = (event) => {
   const win = BrowserWindow.fromWebContents(event.sender);
-  return win && (win === notchWindow || win === settingsWindow);
+  return win && (win === notchWindow || win === settingsWindow || win === setupWindow);
 };
 const ALLOWED_MEDIA_KEYS = new Set(['play-pause', 'next', 'previous']);
 
@@ -1051,7 +1093,7 @@ ipcMain.handle('wheel-pick', async (event, id) => {
   return { ok: true };
 });
 ipcMain.handle('engine-download', async (event, name) => {
-  if (!fromWheel(event) || (name !== 'ffmpeg' && name !== 'bgmodel')) return { ok: false };
+  if (!fromWheel(event) || !['ffmpeg', 'office', 'bgmodel'].includes(name)) return { ok: false };
   try {
     await converter.downloadEngine(name, (progress) => wheelWindow?.webContents.send('engine-progress', progress));
     if (wheelMenu) wheelMenu = { ...wheelMenu, ...converter.menuFor(wheelMenu.file) };
@@ -1093,6 +1135,16 @@ ipcMain.on('editor-reveal', (event, file) => {
   if (fromEditor(event) && convertedFiles.has(file)) shell.showItemInFolder(file);
 });
 ipcMain.on('editor-close', (event) => { if (fromEditor(event)) editorWindow.close(); });
+ipcMain.handle('engines-get', (event) => (fromOurWindows(event) ? converter.engineStatus() : null));
+ipcMain.handle('engine-install', async (event, id) => {
+  if (!fromOurWindows(event) || typeof id !== 'string') return { ok: false };
+  try { await converter.installEngine(id); return { ok: true }; } catch (error) { return { ok: false, error: error.message }; }
+});
+ipcMain.handle('engines-install-missing', async (event) => (fromOurWindows(event) ? { ok: await installMissingEngines() } : { ok: false }));
+ipcMain.on('setup-close', (event) => {
+  if (setupWindow && BrowserWindow.fromWebContents(event.sender) === setupWindow) setupWindow.close();
+});
+ipcMain.on('open-setup', (event) => { if (fromOurWindows(event)) openSetup(); });
 ipcMain.handle('ai-models-get', (event) => (fromOurWindows(event) ? converter.models.status() : null));
 ipcMain.handle('ai-model-download', async (event, id) => {
   if (!fromOurWindows(event) || typeof id !== 'string') return { ok: false };
@@ -1143,7 +1195,8 @@ app.whenReady().then(() => {
   converter = createConverter({
     dir, log, renderPdf, onJob: onConvertJob,
     getSettings: () => config.get(),
-    onModelStatus: (status) => broadcast('ai-models', status)
+    onModelStatus: (status) => broadcast('ai-models', status),
+    onEngineStatus: sendEngines
   });
   installer = createInstaller({ app, shell, log, onProgress: (progress) => broadcast('update-progress', progress) });
   weather = createWeather({
@@ -1180,6 +1233,10 @@ app.whenReady().then(() => {
   createNotchWindow();
   applyGlass(config.get().material === 'glass');
   createTray();
+  if (config.get().enginesSetup !== 'done') {
+    if (converter.engineStatus().every((e) => e.ready)) config.set({ enginesSetup: 'done' });
+    else { openSetup(); installMissingEngines(); }
+  }
   startMediaWorker();
   startDragWatch();
 

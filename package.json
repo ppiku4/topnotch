@@ -154,7 +154,12 @@
       "extendInfo": {
         "LSUIElement": true,
         "NSAppleEventsUsageDescription": "TopNotch asks Finder which file you Option-clicked, to open the file wheel.",
-        "NSBluetoothAlwaysUsageDescription": "TopNotch shows your Bluetooth devices and their battery levels."
+        "NSBluetoothAlwaysUsageDescription": "TopNotch shows your Bluetooth devices and their battery levels.",
+        "NSDesktopFolderUsageDescription": "TopNotch reads files you convert from the Desktop and saves the converted copy next to them.",
+        "NSDocumentsFolderUsageDescription": "TopNotch reads files you convert from Documents and saves the converted copy next to them.",
+        "NSDownloadsFolderUsageDescription": "TopNotch reads files you convert from Downloads and saves the converted copy next to them.",
+        "NSRemovableVolumesUsageDescription": "TopNotch converts files on external drives and saves the copy next to the original.",
+        "NSNetworkVolumesUsageDescription": "TopNotch converts files on network drives and saves the copy next to the original."
       }
     },
     "dmg": {

@@ -22,7 +22,7 @@ TopNotch is MIT-licensed (see [LICENSE](LICENSE)). It builds on the projects bel
 | [yaml](https://eemeli.org/yaml/) | ISC | Reading lrclib's Lyricsfile (line end and word times) |
 | [unpdf](https://github.com/unjs/unpdf) / [pdf.js](https://mozilla.github.io/pdf.js/) | MIT / Apache-2.0 | Text from PDF files |
 
-## Downloaded only when you ask for it
+## Downloaded on first run (or when you ask for it)
 
 | Project | License | Used for |
 | --- | --- | --- |
@@ -31,11 +31,7 @@ TopNotch is MIT-licensed (see [LICENSE](LICENSE)). It builds on the projects bel
 
 | [ISNet (DIS)](https://github.com/xuebinqin/DIS) "general use" (179 MB) and [BiRefNet](https://github.com/ZhengPeng7/BiRefNet) Lite / General / Portrait (224 MB / 973 MB / 973 MB), ONNX exports from [rembg](https://github.com/danielgatis/rembg) | Apache-2.0 (ISNet), MIT (BiRefNet) | Remove background in the file wheel and image editor. Each model downloads only when you ask (Settings → General, or the first time you use it), checked against a pinned SHA-256, into `%APPDATA%\topnotch\vendor\bgmodels`. They run locally on the CPU or, if you choose, the GPU through DirectML; images never leave your PC. |
 
-## Used if you have it installed
-
-| Project | License | Used for |
-| --- | --- | --- |
-| [LibreOffice](https://www.libreoffice.org/) | MPL-2.0 | Office conversions: .doc, .odt, .rtf, writing .docx, and all spreadsheet, presentation and drawing formats. TopNotch runs your installed `soffice.exe` headless; it never downloads it. |
+| [LibreOffice](https://www.libreoffice.org/) 26.2.6 | MPL-2.0 | Office conversions: .doc, .odt, .rtf, writing .docx, and all spreadsheet, presentation and drawing formats. On first run TopNotch downloads the unmodified official installer (checked against a pinned SHA-256) and unpacks it into its own data folder (macOS: the app from the DMG; Windows: an administrative extract of the MSI, nothing registered with Windows), unless LibreOffice is already installed. It runs headless as a separate program. |
 
 ## Online services
 

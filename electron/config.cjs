@@ -26,6 +26,7 @@ const DEFAULTS = {
   weatherShow: 'icon-temp', // icon-temp | temp | detailed
   weatherColor: 'white',  // white | accent | weather
   bgModel: 'isnet',       // background removal model, see bgremove.cjs
+  enginesSetup: 'pending', // first-run engine downloads: pending | done
   aiDevice: 'cpu',        // cpu | gpu (DirectML, falls back to CPU)
   features: {
     lyrics: true,

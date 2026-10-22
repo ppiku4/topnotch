@@ -102,5 +102,11 @@ contextBridge.exposeInMainWorld('topnotch', {
   getAiModels: () => ipcRenderer.invoke('ai-models-get'),
   downloadAiModel: (id) => ipcRenderer.invoke('ai-model-download', String(id)),
   deleteAiModel: (id) => ipcRenderer.invoke('ai-model-delete', String(id)),
-  onAiModels: (callback) => subscribe('ai-models', callback)
+  onAiModels: (callback) => subscribe('ai-models', callback),
+  getEngines: () => ipcRenderer.invoke('engines-get'),
+  installEngine: (id) => ipcRenderer.invoke('engine-install', String(id)),
+  installMissingEngines: () => ipcRenderer.invoke('engines-install-missing'),
+  onEngines: (callback) => subscribe('engines', callback),
+  closeSetup: () => ipcRenderer.send('setup-close'),
+  openSetup: () => ipcRenderer.send('open-setup')
 });

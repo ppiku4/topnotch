@@ -125,16 +125,16 @@ export default function Wheel() {
           <AnimatePresence mode="popLayout" initial={false}>
             {prompt ? (
               <motion.div key="prompt" className="hub-content" initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.9 }}>
-                {prompt.needs === 'ffmpeg' || prompt.needs === 'bgmodel' ? (
+                {prompt.needs === 'ffmpeg' || prompt.needs === 'bgmodel' || prompt.needs === 'office' ? (
                   prompt.progress !== undefined ? (
                     <>
                       <div className="hub-title">Downloading</div>
                       <div className="hub-bar"><span style={{ width: `${Math.round(prompt.progress * 100)}%` }} /></div>
-                      <div className="hub-sub">{prompt.needs === 'ffmpeg' ? 'ffmpeg' : 'AI model'} · {Math.round(prompt.progress * 100)}%</div>
+                      <div className="hub-sub">{({ ffmpeg: 'ffmpeg', office: 'LibreOffice', bgmodel: 'AI model' })[prompt.needs]} · {Math.round(prompt.progress * 100)}%</div>
                     </>
                   ) : (
                     <>
-                      <div className="hub-title">{prompt.needs === 'ffmpeg' ? 'Needs ffmpeg' : 'Needs AI model'}</div>
+                      <div className="hub-title">{({ ffmpeg: 'Needs ffmpeg', office: 'Needs LibreOffice', bgmodel: 'Needs AI model' })[prompt.needs]}</div>
                       <div className="hub-sub">{prompt.error || `${menu.downloadSizes?.[prompt.needs]} download`}</div>
                       <button className="hub-button" onClick={download}>Download</button>
                     </>

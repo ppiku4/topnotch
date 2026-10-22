@@ -127,6 +127,30 @@ function Sensors() {
   );
 }
 
+// ffmpeg and LibreOffice: whether each is ready, and a download/retry.
+function Engines() {
+  const [engines, setEngines] = useState(null);
+  useEffect(() => {
+    bridge.getEngines().then(setEngines);
+    return bridge.onEngines(setEngines);
+  }, []);
+  if (!engines) return <Row icon={ChipIcon} title="Engines" sub="Checking…" />;
+  return engines.filter((e) => e.id !== 'bgmodel').map((e) => (
+    <Row
+      key={e.id}
+      icon={ChipIcon}
+      title={<>{e.label}{e.ready && <span className="row-badge">{e.source === 'system' ? 'On this computer' : 'Installed'}</span>}</>}
+      sub={e.error && !e.ready ? e.error : `${e.about} · ${e.size}`}
+    >
+      {e.progress != null ? (
+        <div className="model-progress"><span style={{ width: `${Math.round(e.progress * 100)}%` }} /><em>{Math.round(e.progress * 100)}%</em></div>
+      ) : !e.ready ? (
+        <button className="button" onClick={() => bridge.installEngine(e.id)}>Download</button>
+      ) : null}
+    </Row>
+  ));
+}
+
 // Background removal models: download, delete, pick one, and where it runs.
 function AiModels({ config }) {
   const [status, setStatus] = useState(null);
@@ -235,6 +259,9 @@ function General({ config }) {
           <Sensors />
         </Group>
       )}
+      <Group title="Conversion engines" aside="Used by the file wheel">
+        <Engines />
+      </Group>
       <Group title="Remove background" aside="Models run on this PC; images never leave it">
         <AiModels config={config} />
       </Group>
