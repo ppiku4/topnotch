@@ -841,7 +841,7 @@ ipcMain.on('lyrics-resync', (event) => {
   updateLyrics();
 });
 
-// ── File wheel (Shift+click a file) and the image editor ──────────────────
+// ── File wheel (Alt+click a file) and the image editor ──────────────────
 
 const WHEEL_SIZE = 340;
 let wheelWindow = null;
@@ -878,7 +878,10 @@ function createWheelWindow() {
     }
   });
   wheelWindow.setAlwaysOnTop(true, 'pop-up-menu');
-  wheelWindow.on('blur', hideWheel);
+  // The wheel opens with Alt still held, and releasing Alt takes focus from
+  // it, so it doesn't close on blur: the watcher below closes it on Esc or
+  // a click outside, focused or not.
+  wheelWindow.removeMenu();
   wheelWindow.on('closed', () => { wheelWindow = null; });
   loadPage(wheelWindow, 'wheel');
   return new Promise((resolve) => wheelWindow.webContents.once('did-finish-load', resolve));
@@ -919,7 +922,7 @@ function stopWheelWatch() {
 async function openWheel(file, physical) {
   const menu = converter.menuFor(file);
   if (!menu) return;
-  wheelMenu = { ...menu, ffmpegSize: `${converter.ffmpegInfo.size} download` };
+  wheelMenu = { ...menu, downloadSizes: converter.downloadSizes };
   if (!wheelWindow || wheelWindow.isDestroyed()) await createWheelWindow();
   // The helper reports physical pixels; centre the wheel on the click.
   const point = screen.screenToDipPoint({ x: physical.x, y: physical.y });
@@ -1005,17 +1008,18 @@ ipcMain.handle('wheel-pick', async (event, id) => {
   const engines = converter.engines();
   if (action.needs && !engines[action.needs]) return { needs: action.needs };
   hideWheel();
-  startConvert(wheelMenu.file, action.target);
+  if (action.id === 'removebg') converter.removeBackground(wheelMenu.file).catch(() => {}); // reported as a job
+  else startConvert(wheelMenu.file, action.target);
   return { ok: true };
 });
-ipcMain.handle('ffmpeg-download', async (event) => {
-  if (!fromWheel(event)) return { ok: false };
+ipcMain.handle('engine-download', async (event, name) => {
+  if (!fromWheel(event) || (name !== 'ffmpeg' && name !== 'bgmodel')) return { ok: false };
   try {
-    await converter.downloadFfmpeg((progress) => wheelWindow?.webContents.send('ffmpeg-progress', progress));
+    await converter.downloadEngine(name, (progress) => wheelWindow?.webContents.send('engine-progress', progress));
     if (wheelMenu) wheelMenu = { ...wheelMenu, ...converter.menuFor(wheelMenu.file) };
     return { ok: true };
   } catch (error) {
-    log('ffmpeg download: ' + error.message);
+    log(name + ' download: ' + error.message);
     return { ok: false, error: error.message };
   }
 });

@@ -17,6 +17,7 @@ TopNotch is MIT-licensed (see [LICENSE](LICENSE)). It builds on the projects bel
 | [marked](https://marked.js.org/) | MIT | Markdown → HTML/PDF |
 | [turndown](https://github.com/mixmark-io/turndown) | MIT | HTML → Markdown |
 | [mammoth](https://github.com/mwilliamson/mammoth.js) | BSD-2-Clause | Reading .docx |
+| [ONNX Runtime](https://onnxruntime.ai/) (onnxruntime-node, CPU only) | MIT | Running the background-removal model |
 | [yaml](https://eemeli.org/yaml/) | ISC | Reading lrclib's Lyricsfile (line end and word times) |
 | [unpdf](https://github.com/unjs/unpdf) / [pdf.js](https://mozilla.github.io/pdf.js/) | MIT / Apache-2.0 | Text from PDF files |
 
@@ -25,7 +26,9 @@ TopNotch is MIT-licensed (see [LICENSE](LICENSE)). It builds on the projects bel
 | Project | License | Used for |
 | --- | --- | --- |
 | [LibreHardwareMonitor](https://github.com/LibreHardwareMonitor/LibreHardwareMonitor) v0.9.6 | [MPL-2.0](https://github.com/LibreHardwareMonitor/LibreHardwareMonitor/blob/master/LICENSE) | CPU temperature. Settings → General → Sensors downloads the unmodified official release into `%APPDATA%\topnotch\vendor`. Its source is available at the link. |
-| [FFmpeg](https://ffmpeg.org/) 7.1.1 essentials build by [gyan.dev](https://www.gyan.dev/ffmpeg/builds/) | [GPL-3.0](https://www.gnu.org/licenses/gpl-3.0.html) | Audio/video conversion in the file wheel, only if no `ffmpeg` is on your PATH. The wheel asks before downloading the unmodified build (checked against a pinned SHA-256) into `%APPDATA%	opnotchendorfmpeg`; its license file is kept next to it. FFmpeg runs as a separate program. |
+| [FFmpeg](https://ffmpeg.org/) 7.1.1 essentials build by [gyan.dev](https://www.gyan.dev/ffmpeg/builds/) | [GPL-3.0](https://www.gnu.org/licenses/gpl-3.0.html) | Audio/video conversion in the file wheel, only if no `ffmpeg` is on your PATH. The wheel asks before downloading the unmodified build (checked against a pinned SHA-256) into `%APPDATA%\topnotch\vendor\ffmpeg`; its license file is kept next to it. FFmpeg runs as a separate program. |
+
+| [ISNet (DIS)](https://github.com/xuebinqin/DIS) "general use" model, ONNX export from [rembg](https://github.com/danielgatis/rembg) | Apache-2.0 | Remove BG in the file wheel. The wheel asks before downloading the unmodified 179 MB model (checked against a pinned SHA-256) into `%APPDATA%\topnotch\vendor\isnet`. It runs locally; images never leave your PC. |
 
 ## Used if you have it installed
 

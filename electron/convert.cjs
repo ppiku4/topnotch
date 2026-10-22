@@ -1,4 +1,4 @@
-// File conversion behind the Shift+click wheel. Images use sharp (plus
+// File conversion behind the Alt+click wheel. Images use sharp (plus
 // ag-psd and small BMP/ICO codecs), documents use marked/turndown/mammoth/
 // unpdf and Chromium's PDF printer, and anything else falls back to the
 // user's LibreOffice. Audio and video go through ffmpeg: the one on PATH, or
@@ -9,6 +9,7 @@ const os = require('os');
 const path = require('path');
 const crypto = require('crypto');
 const { spawn, execFile } = require('child_process');
+const { createBackgroundRemover } = require('./bgremove.cjs');
 
 const EXT_ALIASES = { jpeg: 'jpg', jpe: 'jpg', tif: 'tiff', htm: 'html', markdown: 'md', aif: 'aiff', text: 'txt' };
 const KINDS = {
@@ -458,8 +459,10 @@ function createConverter({ dir, log, renderPdf, onJob }) {
     return null;
   }
 
+  const remover = createBackgroundRemover({ dir, log });
+
   function engines() {
-    return { ffmpeg: !!ffmpeg(), office: !!findLibreOffice() };
+    return { ffmpeg: !!ffmpeg(), office: !!findLibreOffice(), bgmodel: remover.installed() };
   }
 
   // What the wheel offers for a file.
@@ -472,6 +475,7 @@ function createConverter({ dir, log, renderPdf, onJob }) {
     if (kind === 'image' && ext !== 'svg') {
       actions.push({ id: 'edit', label: 'Edit', icon: 'edit' });
       actions.push({ id: 'crop', label: 'Crop', icon: 'crop' });
+      actions.push({ id: 'removebg', label: 'Remove BG', icon: 'removebg', needs: 'bgmodel', ready: available.bgmodel });
     }
     for (const target of TARGETS[kind]) {
       if (target === ext) continue;
@@ -520,6 +524,29 @@ function createConverter({ dir, log, renderPdf, onJob }) {
       }
     })();
     return downloading;
+  }
+
+  // Background removal: a transparent PNG, "photo (no background).png".
+  async function removeBackground(file) {
+    const job = { id: nextId++, name: path.basename(file), target: 'no background', status: 'running', progress: 0 };
+    const report = (patch) => { Object.assign(job, patch); onJob({ ...job }); };
+    report({});
+    const out = freePath(path.dirname(file), path.basename(file, path.extname(file)) + ' (no background)', 'png');
+    try {
+      await remover.removeBackground((await loadImage(file)).rotate(), out, (progress) => report({ progress }));
+      report({ status: 'done', progress: 1, output: out });
+      return out;
+    } catch (error) {
+      log('remove background ' + job.name + ': ' + error.message);
+      report({ status: 'error', error: error.message });
+      throw error;
+    }
+  }
+
+  function downloadEngine(name, onProgress) {
+    if (name === 'ffmpeg') return downloadFfmpeg(onProgress);
+    if (name === 'bgmodel') return remover.download(onProgress);
+    return Promise.reject(new Error('Unknown download'));
   }
 
   async function convert(file, target) {
@@ -592,8 +619,9 @@ function createConverter({ dir, log, renderPdf, onJob }) {
     saveEdited,
     previewImage,
     engines,
-    downloadFfmpeg,
-    ffmpegInfo: { version: FFMPEG_VERSION, size: FFMPEG_SIZE },
+    downloadEngine,
+    removeBackground,
+    downloadSizes: { ffmpeg: FFMPEG_SIZE, bgmodel: remover.size },
     libreOfficeUrl: LIBREOFFICE_URL
   };
 }

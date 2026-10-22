@@ -3,7 +3,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { bridge } from './bridge.js';
 import { SPRING_ISLAND, SPRING_SNAPPY } from './motion.js';
 
-// Shift+click wheel: one ring segment per action for the clicked file,
+// Alt+click wheel: one ring segment per action for the clicked file,
 // with the file in the hub. Engines that aren't installed yet (ffmpeg,
 // LibreOffice) are offered in the hub when their action is picked.
 const SIZE = 340;
@@ -29,6 +29,9 @@ function ActionIcon({ icon }) {
   if (icon === 'edit') {
     return <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M4 20h4L19 9l-4-4L4 16z" /><path d="M13.5 6.5l4 4" /></svg>;
   }
+  if (icon === 'removebg') {
+    return <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3l1.6 3.9L17.5 8.5l-3.9 1.6L12 14l-1.6-3.9L6.5 8.5l3.9-1.6z" /><path d="M5 15l.8 1.9 1.9.8-1.9.8L5 20.4l-.8-1.9-1.9-.8 1.9-.8zM18 14l.6 1.4 1.4.6-1.4.6-.6 1.4-.6-1.4-1.4-.6 1.4-.6z" /></svg>;
+  }
   if (icon === 'crop') {
     return <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M6 2v14a2 2 0 0 0 2 2h14" /><path d="M18 22V8a2 2 0 0 0-2-2H2" /></svg>;
   }
@@ -52,7 +55,7 @@ export default function Wheel() {
   const [prompt, setPrompt] = useState(null); // { needs, action, progress?, error? }
 
   useEffect(() => bridge.onWheelMenu((next) => { setMenu(next); setHover(null); setPrompt(null); }), []);
-  useEffect(() => bridge.onFfmpegProgress((progress) => setPrompt((p) => (p ? { ...p, progress } : p))), []);
+  useEffect(() => bridge.onEngineProgress((progress) => setPrompt((p) => (p ? { ...p, progress } : p))), []);
   useEffect(() => {
     const onKey = (e) => { if (e.key === 'Escape') bridge.closeWheel(); };
     window.addEventListener('keydown', onKey);
@@ -70,7 +73,7 @@ export default function Wheel() {
   };
   const download = async () => {
     setPrompt((p) => ({ ...p, progress: 0, error: null }));
-    const result = await bridge.downloadFfmpeg();
+    const result = await bridge.downloadEngine(prompt.needs);
     if (result?.ok) bridge.wheelPick(prompt.action.id);
     else setPrompt((p) => ({ ...p, progress: undefined, error: result?.error || 'Download failed' }));
   };
@@ -122,17 +125,17 @@ export default function Wheel() {
           <AnimatePresence mode="popLayout" initial={false}>
             {prompt ? (
               <motion.div key="prompt" className="hub-content" initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.9 }}>
-                {prompt.needs === 'ffmpeg' ? (
+                {prompt.needs === 'ffmpeg' || prompt.needs === 'bgmodel' ? (
                   prompt.progress !== undefined ? (
                     <>
                       <div className="hub-title">Downloading</div>
                       <div className="hub-bar"><span style={{ width: `${Math.round(prompt.progress * 100)}%` }} /></div>
-                      <div className="hub-sub">ffmpeg · {Math.round(prompt.progress * 100)}%</div>
+                      <div className="hub-sub">{prompt.needs === 'ffmpeg' ? 'ffmpeg' : 'AI model'} · {Math.round(prompt.progress * 100)}%</div>
                     </>
                   ) : (
                     <>
-                      <div className="hub-title">Needs ffmpeg</div>
-                      <div className="hub-sub">{prompt.error || menu.ffmpegSize}</div>
+                      <div className="hub-title">{prompt.needs === 'ffmpeg' ? 'Needs ffmpeg' : 'Needs AI model'}</div>
+                      <div className="hub-sub">{prompt.error || `${menu.downloadSizes?.[prompt.needs]} download`}</div>
                       <button className="hub-button" onClick={download}>Download</button>
                     </>
                   )
@@ -148,8 +151,8 @@ export default function Wheel() {
               <motion.div key={hovered ? hovered.id : 'file'} className="hub-content" initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} transition={{ duration: 0.14 }}>
                 {hovered ? (
                   <>
-                    <div className="hub-title">{hovered.icon ? hovered.label : `To ${hovered.label}`}</div>
-                    <div className="hub-sub">{hovered.ready === false ? (hovered.needs === 'ffmpeg' ? 'Needs ffmpeg' : 'Needs LibreOffice') : hovered.icon ? 'Quick editor' : 'Saved next to it'}</div>
+                    <div className="hub-title">{hovered.id === 'removebg' ? 'Remove background' : hovered.icon ? hovered.label : `To ${hovered.label}`}</div>
+                    <div className="hub-sub">{hovered.ready === false ? ({ ffmpeg: 'Needs ffmpeg', office: 'Needs LibreOffice', bgmodel: 'Downloads AI model' })[hovered.needs] : hovered.id === 'removebg' ? 'Transparent PNG' : hovered.icon ? 'Quick editor' : 'Saved next to it'}</div>
                   </>
                 ) : (
                   <>

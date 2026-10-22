@@ -30,6 +30,7 @@
     "koffi": "^2.9.0",
     "mammoth": "^1.13.0",
     "marked": "^18.1.1",
+    "onnxruntime-node": "^1.30.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "sharp": "^0.35.5",
@@ -64,14 +65,19 @@
       "!node_modules/koffi/build/koffi/!(win32_x64)/**",
       "!node_modules/koffi/src/**",
       "!node_modules/koffi/doc/**",
-      "!node_modules/ag-psd/{src,dist-es}/**"
+      "!node_modules/ag-psd/{src,dist-es}/**",
+      "!node_modules/onnxruntime-node/bin/napi-v6/{darwin,linux}/**",
+      "!node_modules/onnxruntime-node/bin/napi-v6/win32/arm64/**",
+      "!node_modules/onnxruntime-node/bin/napi-v6/win32/x64/{DirectML,dxcompiler,dxil}.dll",
+      "!node_modules/onnxruntime-node/script/**"
     ],
     "asarUnpack": [
       "electron/system-helper.cs",
       "electron/system-helper.ps1",
       "**/*.node",
       "**/node_modules/sharp/**",
-      "**/node_modules/@img/**"
+      "**/node_modules/@img/**",
+      "**/node_modules/onnxruntime-node/bin/**"
     ],
     "win": {
       "target": [

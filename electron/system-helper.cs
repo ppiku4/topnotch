@@ -682,18 +682,20 @@ static class Bluetooth {
     }
 }
 
-// Shift+left click on a file in Explorer or on the desktop opens TopNotch's
-// file wheel. A low-level mouse hook catches Shift+clicks over Explorer's item
+// Alt+left click on a file in Explorer or on the desktop opens TopNotch's
+// file wheel. A low-level mouse hook catches Alt+clicks over Explorer's item
 // views and holds them back; a worker thread asks UI Automation which item is
 // under the cursor and maps it to a path. Files are reported to the app; any
 // other click (folders, empty space, headers) is replayed unchanged, so
-// Explorer's own Shift+click still works there.
+// Explorer's own Alt+click still works there.
 static class FileClick {
     [StructLayout(LayoutKind.Sequential)] struct POINT { public int x, y; }
     [StructLayout(LayoutKind.Sequential)] struct MSLLHOOKSTRUCT { public POINT pt; public uint mouseData, flags, time; public IntPtr extra; }
     [StructLayout(LayoutKind.Sequential)] struct MSG { public IntPtr hwnd; public uint message; public IntPtr wParam, lParam; public uint time; public POINT pt; }
     [StructLayout(LayoutKind.Sequential)] struct MOUSEINPUT { public int dx, dy; public uint mouseData, dwFlags, time; public IntPtr extra; }
     [StructLayout(LayoutKind.Sequential)] struct INPUT { public uint type; public MOUSEINPUT mi; }
+    [StructLayout(LayoutKind.Sequential)] struct KEYBDINPUT { public ushort wVk, wScan; public uint dwFlags, time; public IntPtr extra; public uint pad1, pad2; }
+    [StructLayout(LayoutKind.Sequential)] struct KEYINPUT_WRAPPER { public uint type; public KEYBDINPUT ki; }
     delegate IntPtr HookProc(int code, IntPtr wParam, IntPtr lParam);
 
     [DllImport("user32.dll")] static extern IntPtr SetWindowsHookEx(int id, HookProc proc, IntPtr module, uint thread);
@@ -704,6 +706,7 @@ static class FileClick {
     [DllImport("user32.dll")] static extern IntPtr GetAncestor(IntPtr hwnd, uint flags);
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern int GetClassName(IntPtr hwnd, System.Text.StringBuilder name, int max);
     [DllImport("user32.dll")] static extern uint SendInput(uint count, INPUT[] inputs, int size);
+    [DllImport("user32.dll", EntryPoint = "SendInput")] static extern uint SendKeys(uint count, KEYINPUT_WRAPPER[] inputs, int size);
     [DllImport("user32.dll")] static extern bool SetCursorPos(int x, int y);
     [DllImport("kernel32.dll")] static extern IntPtr GetModuleHandle(string name);
     [DllImport("user32.dll")] static extern bool SetProcessDPIAware();
@@ -715,7 +718,7 @@ static class FileClick {
 
     static volatile bool enabled;
     static HookProc proc;          // kept alive so the GC doesn't collect the callback
-    static bool holding;           // a Shift+click is being held back
+    static bool holding;           // an Alt+click is being held back
     static POINT heldAt;
     static readonly System.Collections.Concurrent.BlockingCollection<POINT> queue = new System.Collections.Concurrent.BlockingCollection<POINT>();
 
@@ -765,12 +768,13 @@ static class FileClick {
             int msg = wParam.ToInt32();
             if ((info.flags & LLMHF_INJECTED) == 0) {
                 if (msg == WM_LBUTTONDOWN && enabled
-                    && (GetAsyncKeyState(VK_SHIFT) & 0x8000) != 0
-                    && (GetAsyncKeyState(VK_CONTROL) & 0x8000) == 0
-                    && (GetAsyncKeyState(VK_MENU) & 0x8000) == 0
+                    && (GetAsyncKeyState(VK_MENU) & 0x8000) != 0
+                    && (GetAsyncKeyState(VK_CONTROL) & 0x8000) == 0  // AltGr is Ctrl+Alt
+                    && (GetAsyncKeyState(VK_SHIFT) & 0x8000) == 0
                     && OverItemView(info.pt)) {
                     holding = true;
                     heldAt = info.pt;
+                    ThreadPool.QueueUserWorkItem(_ => MaskAlt());
                     return (IntPtr)1;
                 }
                 if (msg == WM_LBUTTONUP && holding) {
@@ -781,6 +785,16 @@ static class FileClick {
             }
         }
         return CallNextHookEx(IntPtr.Zero, code, wParam, lParam);
+    }
+
+    // Releasing Alt on its own makes the active window open its menu bar
+    // (Explorer's "File, Edit, View…"). Pressing an unassigned key while Alt
+    // is down marks it as used, so the release does nothing.
+    static void MaskAlt() {
+        var keys = new KEYINPUT_WRAPPER[2];
+        keys[0].type = 1; keys[0].ki.wVk = 0xE8;
+        keys[1].type = 1; keys[1].ki.wVk = 0xE8; keys[1].ki.dwFlags = 0x0002; // KEYUP
+        SendKeys(2, keys, Marshal.SizeOf(typeof(KEYINPUT_WRAPPER)));
     }
 
     // Puts a held-back click back exactly where it happened.

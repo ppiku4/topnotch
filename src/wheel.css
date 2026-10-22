@@ -1,4 +1,4 @@
-/* ── File wheel (Shift+click a file) ──────────────────────────────────── */
+/* ── File wheel (Alt+click a file) ──────────────────────────────────── */
 
 html.is-wheel, html.is-wheel body { background: transparent; user-select: none; }
 .wheel-stage { position: fixed; inset: 0; display: grid; place-items: center; }
