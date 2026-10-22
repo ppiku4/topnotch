@@ -115,7 +115,7 @@
         "provider": "github",
         "owner": "ppiku4",
         "repo": "topnotch",
-        "releaseType": "draft"
+        "releaseType": "release"
       }
     ],
     "mac": {

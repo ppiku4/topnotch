@@ -1,7 +1,12 @@
 # Builds the Windows installer and portable exe, and the macOS (Apple
-# Silicon) DMG and ZIP. Pushing a tag like v0.2.0 uploads them to a draft
-# GitHub Release, which is published (and marked Latest) only once both
-# platforms are up, so the in-app update check never sees a half release.
+# Silicon) DMG and ZIP. Pushing a tag like v0.2.0 releases them:
+#   draft    creates one draft GitHub Release for the tag
+#   windows  builds and uploads its files into that draft
+#   mac      builds and uploads its files into that draft
+#   publish  publishes the draft and marks it Latest, only after both
+# electron-builder only builds (--publish never); gh does all release
+# writes, so parallel uploads can never create duplicate releases and the
+# in-app update check never sees a half-uploaded one.
 name: Build
 
 on:
@@ -14,7 +19,23 @@ permissions:
   contents: write
 
 jobs:
+  draft:
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create the draft release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # gh finds drafts by tag; create one only if there isn't one yet.
+          gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 \
+            || gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft --verify-tag --title "${GITHUB_REF_NAME#v}" --notes ""
+
   windows:
+    needs: draft
+    # Still runs (and only builds) on pull requests and manual runs, where
+    # the draft job is skipped.
+    if: always() && (needs.draft.result == 'success' || needs.draft.result == 'skipped')
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v7
@@ -29,19 +50,15 @@ jobs:
       - name: Build
         run: npx vite build
 
-      # electron-builder uploads files in parallel and each upload would try
-      # to create the release; making sure the draft exists first avoids that.
-      - name: Draft release
+      - name: Package
+        run: npx electron-builder --win --publish never
+
+      - name: Upload to the draft release
         if: startsWith(github.ref, 'refs/tags/v')
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 || gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft --title "${GITHUB_REF_NAME#v}" --notes ""
-
-      - name: Package (publish on tags)
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npx electron-builder --win ${{ startsWith(github.ref, 'refs/tags/v') && '--publish always' || '--publish never' }}
+        run: gh release upload "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --clobber release/*.exe release/*.exe.blockmap release/latest.yml
 
       - uses: actions/upload-artifact@v7
         with:
@@ -50,9 +67,9 @@ jobs:
             release/*.exe
             release/latest.yml
 
-  # Runs after Windows so both don't race to create the same release.
   mac:
-    needs: windows
+    needs: draft
+    if: always() && (needs.draft.result == 'success' || needs.draft.result == 'skipped')
     runs-on: macos-14
     steps:
       - uses: actions/checkout@v7
@@ -70,22 +87,18 @@ jobs:
       - name: Build
         run: npx vite build
 
-      # electron-builder uploads files in parallel and each upload would try
-      # to create the release; making sure the draft exists first avoids that.
-      - name: Draft release
-        if: startsWith(github.ref, 'refs/tags/v')
-        shell: bash
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 || gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft --title "${GITHUB_REF_NAME#v}" --notes ""
-
       # Ad-hoc signed (no Developer ID): users open it the first time with
       # right-click → Open, or System Settings → Privacy & Security.
-      - name: Package (publish on tags)
+      - name: Package
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+        run: npx electron-builder --mac --arm64 --publish never
+
+      - name: Upload to the draft release
+        if: startsWith(github.ref, 'refs/tags/v')
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
-        run: npx electron-builder --mac --arm64 ${{ startsWith(github.ref, 'refs/tags/v') && '--publish always' || '--publish never' }}
+        run: gh release upload "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --clobber release/*.dmg release/*.zip release/*.blockmap release/latest-mac.yml
 
       - uses: actions/upload-artifact@v7
         with:
@@ -95,13 +108,12 @@ jobs:
             release/*.zip
             release/latest-mac.yml
 
-  # Both platforms uploaded: publish the draft and make it the latest release.
   publish:
     needs: [windows, mac]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     steps:
-      - name: Publish release
+      - name: Publish the release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft=false --latest
