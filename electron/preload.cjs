@@ -58,6 +58,9 @@ contextBridge.exposeInMainWorld('topnotch', {
 
   onOpenPanel: (callback) => subscribe('open-panel', callback),
   onCovered: (callback) => subscribe('covered', callback),
+  getDock: () => ipcRenderer.invoke('dock-get'),
+  onDock: (callback) => subscribe('dock', callback),
+  startDockDrag: () => ipcRenderer.send('dock-drag-start'),
   reportIslandShape: (rect) => ipcRenderer.send('island-shape', rect),
   onGlassShapeRequest: (callback) => subscribe('glass-shape-request', callback),
   setMeter: (on) => ipcRenderer.send('meter', !!on),

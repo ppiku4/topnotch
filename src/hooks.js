@@ -285,3 +285,14 @@ export function useClock(everySecond = false) {
   }, [everySecond]);
   return now;
 }
+
+// Where the notch is docked: { edge, anchor (island centre along the edge,
+// in window px), dragging }. Main pushes updates while it's being dragged.
+export function useDock() {
+  const [dock, setDock] = useState({ edge: 'top', anchor: null, dragging: false });
+  useEffect(() => {
+    bridge.getDock().then((d) => d && setDock(d));
+    return bridge.onDock(setDock);
+  }, []);
+  return dock;
+}

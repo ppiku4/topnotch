@@ -267,3 +267,48 @@ button.card:hover, .meters-card:hover { background: rgba(255, 255, 255, 0.075); 
 .countdown-number { font-size: 52px; font-weight: 600; letter-spacing: -1px; }
 .timer-theme .timer-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .action-card { height: 40px; justify-content: center; align-items: center; font-size: 13px; font-weight: 600; color: var(--stat) !important; text-shadow: 0 0 10px color-mix(in srgb, var(--stat) 55%, transparent); }
+
+/* ── Docking: flat side against the screen edge ───────────────────────── */
+
+.island.edge-top { border-top-left-radius: 0 !important; border-top-right-radius: 0 !important; }
+.island.edge-bottom { border-bottom-left-radius: 0 !important; border-bottom-right-radius: 0 !important; box-shadow: 0 -10px 30px rgba(0, 0, 0, 0.35); }
+.island.edge-left { border-top-left-radius: 0 !important; border-bottom-left-radius: 0 !important; box-shadow: 10px 0 30px rgba(0, 0, 0, 0.35); }
+.island.edge-right { border-top-right-radius: 0 !important; border-bottom-right-radius: 0 !important; box-shadow: -10px 0 30px rgba(0, 0, 0, 0.35); }
+
+.island.is-draggable:not(:has(.panel)) { cursor: grab; }
+.island.is-draggable .panel { cursor: grab; }
+.island.is-draggable .panel :is(button, input, .slider, .clip, .card, .lyrics-list, .mixer-app) { cursor: default; }
+.island.is-draggable .panel :is(button, .clip, .ll) { cursor: pointer; }
+.island.is-draggable .top-bar { cursor: grab; }
+.stage.is-dragging .island { cursor: grabbing; box-shadow: 0 0 0 1.5px color-mix(in srgb, var(--accent) 70%, transparent), 0 12px 34px rgba(0, 0, 0, 0.45); }
+
+/* ── Vertical strip (left/right edges) ────────────────────────────────── */
+
+.v-compact, .v-info {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 10px 0;
+}
+.v-compact { justify-content: space-between; }
+.v-compact .art { border-radius: 7px; }
+.v-bottom { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+.v-dots { flex-direction: column; }
+.v-call { width: 20px; height: 20px; color: var(--green); }
+.v-countdown {
+  writing-mode: vertical-rl;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--orange);
+  font-variant-numeric: tabular-nums;
+}
+.v-info { justify-content: center; gap: 1px; }
+.v-time { font-size: 15px; font-weight: 650; line-height: 1.05; color: var(--clock-color, var(--text)); font-variant-numeric: tabular-nums; }
+.v-info.clock-bold .v-time { font-weight: 800; }
+.v-info.clock-thin .v-time { font-weight: 300; }
+.v-info.clock-mono .v-time { font-family: 'Cascadia Mono', 'Consolas', ui-monospace, monospace; font-size: 14px; }
+.v-period { font-size: 9.5px; font-weight: 600; color: var(--text-dim); text-transform: uppercase; margin-top: 2px; }
+.v-weather { display: flex; flex-direction: column; align-items: center; margin-top: 8px; font-size: 11px; font-weight: 600; color: var(--weather-color, var(--text)); }
+.v-weather svg { width: 16px; height: 16px; }

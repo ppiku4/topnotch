@@ -10,8 +10,8 @@ import { BluetoothTab, DashboardTab, MixerTab, MusicTab } from './Dashboard.jsx'
 import { useHoverPassthrough } from './useHoverPassthrough.js';
 import { useMedia } from './useMedia.js';
 import {
-  formatCountdown, playChime, useActivities, useArtColors, useBattery, useBatteryEvents, useBluetoothDevices, useClipboard,
-  useConfig, useDragNear, useLyrics, useMixer, usePrivacy, useShelf, useStats, useSystemLevels, useTimer, useWeather
+  formatCountdown, playChime, useActivities, useArtColors, useClock, useBattery, useBatteryEvents, useBluetoothDevices, useClipboard,
+  useConfig, useDock, useDragNear, useLyrics, useMixer, usePrivacy, useShelf, useStats, useSystemLevels, useTimer, useWeather
 } from './hooks.js';
 import {
   BatteryRing, BluetoothIcon, ClipboardIcon, CloseIcon, CoffeeIcon, GearIcon, GridIcon, MusicIcon, PhoneIcon, PinIcon,
@@ -23,10 +23,17 @@ const SIZES = {
   compact: { width: 290, height: 36, borderRadius: 18 },
   lyrics: { width: 460, height: 38, borderRadius: 19 },
   activity: { width: 340, height: 48, borderRadius: 24 },
-  panel: { width: 660, height: 300, borderRadius: 34 }
+  panel: { width: 660, height: 300, borderRadius: 34 },
+  // Left/right edges: the resting pill becomes a vertical strip.
+  vIdle: { width: 30, height: 140, borderRadius: 15 },
+  vInfo: { width: 48, height: 136, borderRadius: 24 },
+  vCompact: { width: 40, height: 200, borderRadius: 20 }
 };
 const GLASS_RADIUS = 8;
-const SQUARED_RADIUS = { idle: 8, info: 8, compact: 9, lyrics: 10, activity: 12, panel: 16 };
+const SQUARED_RADIUS = { idle: 8, info: 8, compact: 9, lyrics: 10, activity: 12, panel: 16, vIdle: 8, vInfo: 9, vCompact: 9 };
+// Pointer travel (px) before a press on the island turns into a drag.
+const DRAG_THRESHOLD = 6;
+const isVerticalEdge = (edge) => edge === 'left' || edge === 'right';
 // Info pill: text width plus side padding.
 const INFO_PADDING = 36;
 const INFO_MIN = 190;
@@ -60,6 +67,8 @@ export default function Island() {
   const clipboard = useClipboard();
   const shelf = useShelf();
   const dragNear = useDragNear();
+  const dock = useDock();
+  const edge = dock.edge;
   // The pin is the "Keep open" setting, so it survives restarts.
   const pinned = !!config.keepOpen;
   const setPinned = (on) => bridge.setConfig({ keepOpen: on });
@@ -81,7 +90,9 @@ export default function Island() {
     const box = el.getBoundingClientRect();
     const zoom = box.width / (el.offsetWidth || box.width || 1);
     const style = getComputedStyle(el);
-    const radius = parseFloat(style.borderBottomLeftRadius) * zoom || 0;
+    // The corners on the docked side are square; take the rounded ones.
+    const radius = Math.max(...['borderTopLeftRadius', 'borderTopRightRadius', 'borderBottomLeftRadius', 'borderBottomRightRadius']
+      .map((k) => parseFloat(style[k]) || 0)) * zoom;
     const hidden = parseFloat(style.opacity) < 0.05;
     bridge.reportIslandShape({ x: box.left, y: box.top, width: box.width, height: box.height, radius, hidden });
   }, [glass]);
@@ -135,7 +146,8 @@ export default function Island() {
     return () => clearTimeout(timer);
   }, [dragNear]);
 
-  const panelOpen = hovered || (features.shelf && (dragNear || dropping));
+  // While the notch is being dragged to a new edge it stays collapsed.
+  const panelOpen = !dock.dragging && (hovered || (features.shelf && (dragNear || dropping)));
   const stats = useStats(panelOpen && (activeTab === 'stats' || activeTab === 'dashboard'));
   const mixer = useMixer(panelOpen && activeTab === 'mixer');
   const bluetoothDevices = useBluetoothDevices();
@@ -163,7 +175,11 @@ export default function Island() {
   // artwork and the bars instead.
   const compactInfo = state === 'compact' && !pillLyrics && media?.playing && features.pillInfo !== false && !timerRunning && !privacy.call
     ? { weather: features.weather ? weather : null } : null;
-  const size = state === 'compact' && pillLyrics ? 'lyrics' : compactInfo ? 'compactInfo' : state;
+  // On the left/right edges the resting states are a vertical strip; the
+  // panel and live activities keep their horizontal shape.
+  const vertical = isVerticalEdge(edge) && (state === 'idle' || state === 'info' || state === 'compact');
+  const size = vertical ? (state === 'compact' ? 'vCompact' : state === 'info' ? 'vInfo' : 'vIdle')
+    : state === 'compact' && pillLyrics ? 'lyrics' : compactInfo ? 'compactInfo' : state;
   const squared = config.corners === 'squared';
   const target = {
     ...SIZES[size],
@@ -177,10 +193,48 @@ export default function Island() {
     // and can't be clipped further, so the island matches that radius
     // (divided by the notch size, which is applied as CSS zoom).
     ...(glass ? { borderRadius: GLASS_RADIUS / (config.scale || 1) } : null),
-    // Hide behind maximized windows; hovering the top edge still brings it back.
+    // Hide behind maximized windows; hovering the edge still brings it back.
     opacity: covered && !panelOpen ? 0 : 1,
-    y: covered && !panelOpen ? -12 : 0
+    x: covered && !panelOpen ? (edge === 'left' ? -12 : edge === 'right' ? 12 : 0) : 0,
+    y: covered && !panelOpen ? (edge === 'top' ? -12 : edge === 'bottom' ? 12 : 0) : 0
   };
+
+  // Place the island's centre at the dock anchor, kept inside the window so
+  // it sits flush in the screen corner at either end of an edge.
+  const zoom = config.scale || 1;
+  const along = isVerticalEdge(edge) ? 'height' : 'width';
+  const windowSpan = isVerticalEdge(edge) ? window.innerHeight : window.innerWidth;
+  const half = ((target[along] ?? 0) * zoom) / 2;
+  const anchor = Math.max(half, Math.min(windowSpan - half, dock.anchor ?? windowSpan / 2)) / zoom;
+  const anchorStyle = isVerticalEdge(edge)
+    ? { top: anchor, [edge]: 0, transform: 'translateY(-50%)' }
+    : { left: anchor, [edge]: 0, transform: 'translateX(-50%)' };
+
+  // Press and drag the island, or any non-interactive part of the open panel
+  // (its header, gaps, labels), to move it to any edge; main follows the
+  // cursor until the button is released.
+  const dragStart = useRef(null);
+  const onPointerDown = (e) => {
+    if (e.button !== 0 || config.lockPosition) return;
+    if (e.target.closest('button, a, input, select, textarea, .slider, .clip-list, .clip, .shelf-grid, .lyrics-list, .mixer-apps, .media-card-top, .meters-card')) return;
+    dragStart.current = { x: e.screenX, y: e.screenY };
+  };
+  const onPointerMove = (e) => {
+    const start = dragStart.current;
+    if (!start) return;
+    if (Math.hypot(e.screenX - start.x, e.screenY - start.y) < DRAG_THRESHOLD) return;
+    dragStart.current = null;
+    bridge.startDockDrag();
+  };
+  const onPointerUp = () => { dragStart.current = null; };
+
+  // When a drag ends the pointer may be anywhere; let the hover logic start
+  // again from "outside".
+  const wasDragging = useRef(false);
+  useEffect(() => {
+    if (dock.dragging) { wasDragging.current = true; return; }
+    if (wasDragging.current) { wasDragging.current = false; close(); }
+  }, [dock.dragging, close]);
 
   const onWheel = (e) => {
     // Chromium reports Shift+wheel as horizontal scroll (deltaY = 0).
@@ -208,11 +262,15 @@ export default function Island() {
   const style = artColors ? { '--accent': artColors[0], '--accent-2': artColors[1] } : undefined;
 
   return (
-    <div className="stage" style={{ zoom: config.scale }}>
+    <div className={`stage edge-${edge}${dock.dragging ? ' is-dragging' : ''}`} style={{ zoom: config.scale }}>
+      <div className="dock-anchor" style={anchorStyle}>
       <motion.div
-        className={`island${glowing ? ` is-glowing glow-${edgeGlow}` : ''}${config.material === 'glass' ? ' is-glass' : ''}${squared ? ' is-squared' : ''}`}
+        className={`island edge-${edge}${vertical ? ' is-vertical' : ''}${glowing ? ` is-glowing glow-${edgeGlow}` : ''}${config.material === 'glass' ? ' is-glass' : ''}${squared ? ' is-squared' : ''}${config.lockPosition ? '' : ' is-draggable'}`}
         style={style}
         {...handlers}
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
         {...dropHandlers}
         onWheel={onWheel}
         ref={islandRef}
@@ -268,13 +326,74 @@ export default function Island() {
             </motion.div>
           )}
           {state === 'activity' && <Activity key={`activity-${activities.current.kind}`} activity={activities.current} levels={levels} hold={hold} />}
-          {state === 'info' && <InfoPill key="info" weather={features.weather ? weather : null} config={config} onWidth={onInfoWidth} />}
-          {state === 'compact' && (
+          {vertical && state === 'info' && <VerticalInfo key="v-info" weather={features.weather ? weather : null} config={config} />}
+          {vertical && state === 'compact' && (
+            <VerticalCompact key="v-compact" media={media} privacy={features.privacy ? privacy : null} timerState={timerRunning ? timerState : null} />
+          )}
+          {!vertical && state === 'info' && <InfoPill key="info" weather={features.weather ? weather : null} config={config} onWidth={onInfoWidth} />}
+          {!vertical && state === 'compact' && (
             <Compact key="compact" media={media} lyrics={pillLyrics} onLyricsWidth={onPillWidth} info={compactInfo} onInfoWidth={onInfoWidth} config={config} privacy={features.privacy ? privacy : null} timerState={timerRunning ? timerState : null} />
           )}
         </AnimatePresence>
       </motion.div>
+      </div>
     </div>
+  );
+}
+
+// ── Vertical strip (left/right edges) ──────────────────────────────────
+
+function VerticalInfo({ weather, config }) {
+  const now = useClock(!!config.clockSeconds);
+  const parts = new Intl.DateTimeFormat(undefined, {
+    hour: config.clockFormat === '24h' ? '2-digit' : 'numeric',
+    minute: '2-digit',
+    hour12: config.clockFormat === '12h' ? true : config.clockFormat === '24h' ? false : undefined
+  }).formatToParts(now);
+  const hour = parts.find((p) => p.type === 'hour')?.value;
+  const minute = parts.find((p) => p.type === 'minute')?.value;
+  const period = parts.find((p) => p.type === 'dayPeriod')?.value;
+  return (
+    <motion.div
+      className={`v-info clock-${config.clockStyle || 'regular'}`}
+      {...CONTENT}
+      style={{ '--clock-color': config.clockColor === 'accent' ? 'var(--accent)' : 'var(--text)', '--weather-color': weatherColor(weather, config.weatherColor) }}
+    >
+      <span className="v-time">{hour}</span>
+      <span className="v-time">{minute}</span>
+      {period && <span className="v-period">{period}</span>}
+      {weather && (
+        <span className="v-weather" title={weather.place}>
+          <WeatherIcon condition={weather.condition} isDay={weather.isDay} />
+          <span>{weather.temperature}°</span>
+        </span>
+      )}
+    </motion.div>
+  );
+}
+
+function VerticalCompact({ media, privacy, timerState }) {
+  const camera = privacy?.camera.length > 0;
+  const mic = privacy?.microphone.length > 0;
+  const call = privacy?.call;
+  let top = <span />;
+  if (call) top = <span className="v-call" title={call}><PhoneIcon /></span>;
+  else if (media) top = <Artwork src={media.art} size={26} />;
+  else if (timerState) top = <span className="compact-timer-icon"><TimerIcon /></span>;
+  return (
+    <motion.div className="v-compact" {...CONTENT}>
+      {top}
+      {timerState && <span className="v-countdown">{formatCountdown(timerState.remaining)}</span>}
+      <span className="v-bottom">
+        {(camera || mic) && (
+          <span className="privacy-dots v-dots">
+            {camera && <span className="dot dot-camera" />}
+            {mic && <span className="dot dot-mic" />}
+          </span>
+        )}
+        {media && <Bars playing={media.playing} />}
+      </span>
+    </motion.div>
   );
 }
 

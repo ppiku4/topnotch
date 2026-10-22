@@ -36,8 +36,12 @@ log(`start electron ${process.versions.electron} pid ${process.pid}`);
 
 // The window never resizes: the island animates inside a fixed transparent
 // box, and everything outside the pill lets clicks through to the desktop.
-const WINDOW_WIDTH = 900;
-const WINDOW_HEIGHT = 600;
+// Top/bottom edges get a wide window; left/right a taller, narrower one
+// (the resting pill is a vertical strip there, the panel still horizontal).
+const WINDOW_SIZE = {
+  horizontal: { width: 900, height: 600 },
+  vertical: { width: 720, height: 780 }
+};
 const ASSETS = path.join(__dirname, '..', 'assets');
 const CALL_APPS = /zoom|teams|discord|slack|skype|webex|whatsapp|telegram|signal|meet|facetime/i;
 
@@ -91,15 +95,114 @@ function targetDisplay() {
   return screen.getAllDisplays().find((d) => d.id === id) || screen.getPrimaryDisplay();
 }
 
+// ── Docking ───────────────────────────────────────────────────────────────
+// The notch can sit anywhere along any edge of any display. `dock` is where
+// it is right now (the saved config, or the live position while dragging);
+// `anchor` tells the renderer where the island's centre is inside the
+// window, which differs from the window's centre near the screen corners.
+let dock = null;          // { edge, offset, displayId }
+let dockDragging = false;
+
+const isVertical = (edge) => edge === 'left' || edge === 'right';
+
+function dockFromConfig() {
+  const c = config.get();
+  return { edge: c.dockEdge || 'top', offset: Number.isFinite(c.dockOffset) ? c.dockOffset : 0.5, displayId: c.displayId };
+}
+
+function displayFor(id) {
+  return screen.getAllDisplays().find((d) => d.id === id) || screen.getPrimaryDisplay();
+}
+
+// The top edge uses the full screen (a real notch sits on the bezel); the
+// other edges stay clear of the taskbar.
+const edgeArea = (display, edge) => (edge === 'top' ? display.bounds : display.workArea);
+
+function dockLayout(d = dock || dockFromConfig()) {
+  const display = displayFor(d.displayId);
+  const area = edgeArea(display, d.edge);
+  const size = WINDOW_SIZE[isVertical(d.edge) ? 'vertical' : 'horizontal'];
+  const width = Math.min(size.width, area.width);
+  const height = Math.min(size.height, area.height);
+  const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+  if (isVertical(d.edge)) {
+    const along = area.y + d.offset * area.height;
+    const y = Math.round(clamp(along - height / 2, area.y, area.y + area.height - height));
+    const x = d.edge === 'left' ? area.x : area.x + area.width - width;
+    return { bounds: { x, y, width, height }, anchor: along - y };
+  }
+  const along = area.x + d.offset * area.width;
+  const x = Math.round(clamp(along - width / 2, area.x, area.x + area.width - width));
+  const y = d.edge === 'top' ? area.y : area.y + area.height - height;
+  return { bounds: { x, y, width, height }, anchor: along - x };
+}
+
+function sendDock() {
+  const d = dock || dockFromConfig();
+  send('dock', { edge: d.edge, anchor: dockLayout(d).anchor, dragging: dockDragging });
+}
+
+// Older call sites: the bounds the window should have right now.
 function notchBounds() {
-  const { bounds } = targetDisplay();
-  const width = Math.min(WINDOW_WIDTH, bounds.width);
-  const height = Math.min(WINDOW_HEIGHT, bounds.height);
-  return { x: Math.round(bounds.x + (bounds.width - width) / 2), y: bounds.y, width, height };
+  return dockLayout().bounds;
 }
 
 function positionNotch() {
-  if (notchWindow && !notchWindow.isDestroyed()) notchWindow.setBounds(notchBounds());
+  if (!notchWindow || notchWindow.isDestroyed()) return;
+  if (!dockDragging) dock = dockFromConfig();
+  const { bounds } = dockLayout();
+  const current = notchWindow.getBounds();
+  if (current.x !== bounds.x || current.y !== bounds.y || current.width !== bounds.width || current.height !== bounds.height) {
+    notchWindow.setBounds(bounds);
+  }
+  sendDock();
+}
+
+// Nearest edge of the display under the cursor, and how far along it.
+// Within 4% of the centre or an end it snaps there.
+function dockAtCursor(cursor) {
+  const display = screen.getDisplayNearestPoint(cursor);
+  const b = display.bounds;
+  const distances = {
+    top: cursor.y - b.y,
+    bottom: b.y + b.height - cursor.y,
+    left: cursor.x - b.x,
+    right: b.x + b.width - cursor.x
+  };
+  const edge = Object.keys(distances).reduce((best, e) => (distances[e] < distances[best] ? e : best), 'top');
+  const area = edgeArea(display, edge);
+  let offset = isVertical(edge) ? (cursor.y - area.y) / area.height : (cursor.x - area.x) / area.width;
+  offset = Math.max(0, Math.min(1, offset));
+  for (const snap of [0, 0.5, 1]) if (Math.abs(offset - snap) < 0.04) offset = snap;
+  return { edge, offset, displayId: display.id };
+}
+
+let dragTimer = null;
+function startDockDrag() {
+  if (dragTimer || config.get().lockPosition || !notchWindow) return;
+  dockDragging = true;
+  dock = dockFromConfig();
+  sendDock();
+  dragTimer = setInterval(() => {
+    if (!notchWindow || notchWindow.isDestroyed()) return endDockDrag(false);
+    if (!isLeftButtonDown()) return endDockDrag(true);
+    const next = dockAtCursor(screen.getCursorScreenPoint());
+    if (next.edge !== dock.edge || next.displayId !== dock.displayId || Math.abs(next.offset - dock.offset) > 0.0005) {
+      dock = next;
+      notchWindow.setBounds(dockLayout().bounds);
+      sendDock();
+    }
+  }, 16);
+}
+
+function endDockDrag(save) {
+  clearInterval(dragTimer);
+  dragTimer = null;
+  dockDragging = false;
+  if (save && dock) {
+    config.set({ dockEdge: dock.edge, dockOffset: Math.round(dock.offset * 1000) / 1000, displayId: dock.displayId });
+  }
+  positionNotch();
 }
 
 function createNotchWindow() {
@@ -148,6 +251,7 @@ function createNotchWindow() {
     if (systemService) send('system-levels', { levels: systemService.getLevels(), changed: null });
     send('lyrics', lastLyrics);
     send('covered', covered);
+    sendDock();
     send('privacy', lastPrivacy);
     send('bluetooth-devices', bluetoothDevices || []);
     if (lastWeather) send('weather', lastWeather);
@@ -406,7 +510,8 @@ function setStatsVisible(on) {
 // renderer reports the island's rect every animation frame and the backdrop
 // follows it. Windows 11 rounds the backdrop's corners (about 8px), so it's
 // inset a little to keep those corners inside the island's larger curve, and
-// it starts above the screen edge so its top corners are never visible.
+// it extends past the screen edge the island is docked to, so the corners on
+// that side are never visible.
 // Windows ignores window regions for acrylic (tested on Electron and plain
 // Win32 windows), so its own corner rounding is the only clip available.
 let glassOn = false;
@@ -414,27 +519,37 @@ let backdrop = null;
 const BACKDROP_TINT = 0x99121214;           // 0xAABBGGRR
 const OFFSCREEN = { x: -200, y: -200, width: 10, height: 10 };
 
-// Windows won't make this window shorter than its minimum tracking height
-// (about 50 DIP), so small pills get a tall backdrop that extends further
-// above the screen edge, keeping its bottom aligned with the island.
-const BACKDROP_MIN_HEIGHT = 60;
+// Windows won't make this window smaller than its minimum tracking size
+// (about 50 DIP), so small pills get a backdrop that extends further past
+// the screen edge the island is docked to, keeping its other sides aligned.
+const BACKDROP_MIN_SIZE = 60;
 
 function backdropBoundsFor(rect) {
   const nb = notchWindow.getBounds();
+  const edge = (dock || dockFromConfig()).edge;
   // The island uses Windows' own 8 DIP corner radius in glass mode, so the
   // backdrop covers it edge to edge; larger radii (mid-animation) get inset.
   const r = Math.max(0, rect.radius);
   // At least 1 DIP: window positions are whole DIPs, so the backdrop can land
   // a pixel or two off the island's fractional edge.
   const inset = r > 8.5 ? Math.ceil((r - 8) * 0.3) + 1 : 1;
-  const bottom = nb.y + rect.y + rect.height - inset;
-  const height = Math.max(BACKDROP_MIN_HEIGHT, Math.round(rect.height + 12 - inset));
-  return {
-    x: Math.round(nb.x + rect.x + inset),
-    y: Math.round(bottom - height),
-    width: Math.max(1, Math.round(rect.width - inset * 2)),
-    height
-  };
+  const left = nb.x + rect.x, top = nb.y + rect.y;
+  const right = left + rect.width, bottom = top + rect.height;
+  const extend = (span) => Math.max(BACKDROP_MIN_SIZE, Math.round(span + 12 - inset));
+  if (edge === 'bottom') {
+    const height = extend(rect.height);
+    return { x: Math.round(left + inset), y: Math.round(top + inset), width: Math.max(1, Math.round(rect.width - inset * 2)), height };
+  }
+  if (edge === 'left') {
+    const width = extend(rect.width);
+    return { x: Math.round(right - inset - width), y: Math.round(top + inset), width, height: Math.max(1, Math.round(rect.height - inset * 2)) };
+  }
+  if (edge === 'right') {
+    const width = extend(rect.width);
+    return { x: Math.round(left + inset), y: Math.round(top + inset), width, height: Math.max(1, Math.round(rect.height - inset * 2)) };
+  }
+  const height = extend(rect.height);
+  return { x: Math.round(left + inset), y: Math.round(bottom - inset - height), width: Math.max(1, Math.round(rect.width - inset * 2)), height };
 }
 
 function createBackdrop() {
@@ -511,7 +626,7 @@ function stopCoverWatch() {
 
 // ── File drags toward the notch ───────────────────────────────────────────
 // A click-through window can't receive drops, so watch for a mouse drag that
-// started elsewhere and reaches the top of the screen, then start catching.
+// started elsewhere and reaches the notch's edge, then start catching.
 
 function startDragWatch() {
   let wasDown = false;
@@ -521,9 +636,15 @@ function startDragWatch() {
     if (!notchWindow || notchWindow.isDestroyed() || !features().shelf) return;
     const down = isLeftButtonDown();
     const cursor = screen.getCursorScreenPoint();
+    if (dockDragging) return;
     const b = notchWindow.getBounds();
-    const center = b.x + b.width / 2;
-    const inZone = cursor.y >= b.y && cursor.y < b.y + 70 && Math.abs(cursor.x - center) < 260;
+    const d = dock || dockFromConfig();
+    const anchor = dockLayout(d).anchor;
+    // A band along the docked edge, centred on the island.
+    const inZone = d.edge === 'top' ? cursor.y >= b.y && cursor.y < b.y + 70 && Math.abs(cursor.x - (b.x + anchor)) < 260
+      : d.edge === 'bottom' ? cursor.y <= b.y + b.height && cursor.y > b.y + b.height - 70 && Math.abs(cursor.x - (b.x + anchor)) < 260
+      : d.edge === 'left' ? cursor.x >= b.x && cursor.x < b.x + 70 && Math.abs(cursor.y - (b.y + anchor)) < 260
+      : cursor.x <= b.x + b.width && cursor.x > b.x + b.width - 70 && Math.abs(cursor.y - (b.y + anchor)) < 260;
     if (down && !wasDown) startedOutside = !inZone;
     if (down && startedOutside && inZone && !active) {
       active = true;
@@ -568,6 +689,12 @@ ipcMain.on('set-brightness', (event, value) => {
   if (fromNotch(event) && Number.isFinite(value)) systemService?.setBrightness(value);
 });
 
+ipcMain.on('dock-drag-start', (event) => { if (fromNotch(event)) startDockDrag(); });
+ipcMain.handle('dock-get', (event) => {
+  if (!fromOurWindows(event)) return null;
+  const d = dock || dockFromConfig();
+  return { edge: d.edge, anchor: dockLayout(d).anchor, dragging: dockDragging };
+});
 ipcMain.on('stats-visible', (event, on) => { if (fromNotch(event)) setStatsVisible(!!on); });
 // The renderer reports the island's rect (CSS px, zoom included) each frame
 // while it animates; in glass mode the window region follows it.
@@ -707,7 +834,7 @@ app.whenReady().then(() => {
   let previous = config.get();
   config.onChange((current) => {
     applyConfig(current);
-    if (current.displayId !== previous.displayId) positionNotch();
+    if (current.displayId !== previous.displayId || current.dockEdge !== previous.dockEdge || current.dockOffset !== previous.dockOffset) positionNotch();
     if (current.features.lyrics && !previous.features.lyrics) { lyricsKey = null; updateLyrics(); }
     if (current.weatherCity !== previous.weatherCity || current.temperatureUnit !== previous.temperatureUnit) weather.reset();
     previous = current;

@@ -28,19 +28,19 @@ html.is-notch, html.is-notch body { background: transparent; user-select: none; 
 button { font: inherit; color: inherit; }
 
 .stage {
-  display: flex;
-  justify-content: center;
-  align-items: flex-start;
+  position: relative;
   width: 100%;
   height: 100%;
 }
 
-/* Flat top edge so the island looks like it hangs from the screen bezel. */
+/* The island's centre sits at the dock anchor along its edge (Island.jsx). */
+.dock-anchor { position: absolute; display: flex; }
+
+/* The side against the screen edge is flat, so the island looks like it
+   hangs from the bezel. */
 .island {
   position: relative;
   background: var(--island-bg);
-  border-top-left-radius: 0 !important;
-  border-top-right-radius: 0 !important;
   overflow: hidden;
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
   display: flex;

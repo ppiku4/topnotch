@@ -3,6 +3,9 @@ const path = require('path');
 
 const DEFAULTS = {
   displayId: null,        // null = primary display
+  dockEdge: 'top',        // top | bottom | left | right
+  dockOffset: 0.5,        // position along the edge, 0 (start) … 1 (end)
+  lockPosition: false,    // true = dragging the notch is off
   scale: 1,
   launchAtLogin: false,
   expandOnHover: true,    // false = click the pill to open
@@ -76,7 +79,9 @@ function sanitizePatch(patch) {
   if (oneOf(patch.clockColor, ['white', 'accent'])) out.clockColor = patch.clockColor;
   if (oneOf(patch.weatherShow, ['icon-temp', 'temp', 'detailed'])) out.weatherShow = patch.weatherShow;
   if (oneOf(patch.weatherColor, ['white', 'accent', 'weather'])) out.weatherColor = patch.weatherColor;
-  for (const key of ['launchAtLogin', 'expandOnHover', 'keepOpen', 'hideBehindMaximized', 'clockSeconds']) {
+  if (oneOf(patch.dockEdge, ['top', 'bottom', 'left', 'right'])) out.dockEdge = patch.dockEdge;
+  if (Number.isFinite(patch.dockOffset)) out.dockOffset = Math.max(0, Math.min(1, patch.dockOffset));
+  for (const key of ['launchAtLogin', 'expandOnHover', 'keepOpen', 'hideBehindMaximized', 'clockSeconds', 'lockPosition']) {
     if (typeof patch[key] === 'boolean') out[key] = patch[key];
   }
   if (typeof patch.weatherCity === 'string') out.weatherCity = patch.weatherCity.slice(0, 80);

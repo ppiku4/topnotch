@@ -148,6 +148,17 @@ function General({ config }) {
           </select>
         </Row>
       </Group>
+      <Group title="Position" aside="Or drag the notch to any edge">
+        <Row icon={MonitorIcon} title="Screen edge" sub="Left and right show a slim vertical strip that opens into the full panel.">
+          <Segmented id="dockEdge" value={config.dockEdge || 'top'} onChange={(v) => set({ dockEdge: v })} options={[['top', 'Top'], ['bottom', 'Bottom'], ['left', 'Left'], ['right', 'Right']]} />
+        </Row>
+        <Row icon={PinIcon} title="Lock position" sub="Turn off dragging so the notch can't be moved by accident.">
+          <Toggle checked={!!config.lockPosition} onChange={(v) => set({ lockPosition: v })} />
+        </Row>
+        <Row icon={ExpandIcon} title="Reset position" sub="Back to the centre of the top edge.">
+          <button className="button" onClick={() => set({ dockEdge: 'top', dockOffset: 0.5 })}>Reset</button>
+        </Row>
+      </Group>
       <Group title="Behaviour">
         <Row icon={BoltIcon} title="Open at sign-in" sub="Start TopNotch when Windows starts.">
           <Toggle checked={!!config.launchAtLogin} onChange={(v) => set({ launchAtLogin: v })} />
@@ -282,7 +293,8 @@ const TIPS = [
   [PointerIcon, 'Open the notch', 'Hover it (or click, if Expand on hover is off) to see media, controls and widgets.'],
   [WheelIcon, 'Scroll to adjust', 'Scroll over the notch for volume; hold Shift for brightness.'],
   [PinIcon, 'Keep it open', 'Use the pin in the notch header while you work.'],
-  [TrayIcon, 'Park files', 'Drag files to the top of the screen to drop them on the shelf.'],
+  [ExpandIcon, 'Move it', 'Press and drag the notch (or the empty part of its header) to any screen edge.'],
+  [TrayIcon, 'Park files', "Drag files to the notch's edge to drop them on the shelf."],
   [ExpandIcon, 'Seek a song', 'Click anywhere on the progress bar to jump to that point.'],
   [LyricsIcon, 'Jump to a lyric', 'In the Music tab, click any line to play from there.'],
   [CloseIcon, 'Quit', 'Right-click the tray icon and choose Quit TopNotch.']
