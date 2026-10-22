@@ -108,7 +108,8 @@
     "nsis": {
       "oneClick": false,
       "perMachine": false,
-      "allowToChangeInstallationDirectory": true
+      "allowToChangeInstallationDirectory": true,
+      "artifactName": "TopNotch-Setup-${version}.${ext}"
     },
     "publish": [
       {
@@ -170,7 +171,10 @@
     "dmg": {
       "title": "TopNotch ${version}"
     },
-    "afterPack": "scripts/after-pack.cjs"
+    "afterPack": "scripts/after-pack.cjs",
+    "portable": {
+      "artifactName": "TopNotch-${version}.${ext}"
+    }
   },
   "overrides": {
     "builder-util-runtime": "^9.7.0"
