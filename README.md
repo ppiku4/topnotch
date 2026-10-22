@@ -35,7 +35,7 @@ Built with Electron, React, Vite and framer-motion. Windows 10 (1809) or later; 
   - System status (CPU, GPU, memory, download, upload, temperatures)
   - File shelf (drag files to the top of the screen)
 - **File wheel:** Alt+click a file in Explorer or on the desktop for a radial menu of conversions. The copy is saved next to the original and never overwrites it; progress and "Show" appear in the notch.
-  - Images (PNG, JPG, WEBP, TIFF, AVIF, GIF, BMP, ICO, PSD; SVG as input): convert, **Remove BG** (an on-device AI model makes a transparent PNG; downloaded once after asking, ~179 MB), or open the quick editor to crop (free or fixed ratios), rotate, flip, resize and adjust brightness/contrast/saturation.
+  - Images (PNG, JPG, WEBP, TIFF, AVIF, GIF, BMP, ICO, PSD; SVG as input): convert, **Remove BG** (on-device AI: ISNet or BiRefNet, chosen and downloaded in Settings → General, on CPU or GPU; also in the editor), or open the quick editor to crop (free or fixed ratios), rotate, flip, resize and adjust brightness/contrast/saturation.
   - Documents: TXT, MD, HTML, DOCX and PDF convert among each other built in. DOC, ODT, RTF and writing DOCX use your installed [LibreOffice](https://www.libreoffice.org/).
   - Office files, through your installed LibreOffice: Word-style documents (DOC/DOCX/DOCM/DOTX, ODT, RTF, WPD, WPS) to PDF, DOCX, ODT, RTF, DOC, HTML, TXT or MD; spreadsheets (XLSX/XLS/XLSM/XLSB, ODS, CSV, TSV) to XLSX, PDF, CSV, ODS, XLS or HTML; presentations (PPTX/PPT/PPSX/POTX, ODP, Keynote) to PPTX, PDF, ODP or PPT; drawings (VSDX/VSD, ODG, Publisher) to PDF, PNG, SVG or ODG.
   - Video (to MP4, MKV, WEBM, MOV, GIF, or MP3/WAV/M4A audio) and audio (MP3, WAV, FLAC, M4A, OGG, OPUS) use `ffmpeg` from your PATH, or a copy TopNotch downloads after asking (~88 MB).
@@ -50,6 +50,22 @@ Built with Electron, React, Vite and framer-motion. Windows 10 (1809) or later; 
 ## Install
 
 Download the installer or portable `.exe` from [Releases](../../releases).
+
+### macOS (Apple Silicon)
+
+Download `TopNotch-<version>-arm64.dmg` from [Releases](../../releases) and drag TopNotch to Applications. The app isn't signed with an Apple Developer ID, so the first launch needs one extra step: right-click TopNotch → **Open**, or after a blocked launch go to **System Settings → Privacy & Security → Open Anyway**.
+
+macOS asks once for each of these, when the feature first needs it:
+
+- **Control Finder** (Automation): for the Option+click file wheel, to ask Finder which file you clicked.
+- **Bluetooth**: for the Bluetooth tab and battery levels.
+
+On macOS:
+- **Not available:** the per-app volume Mixer, CPU temperature and "hide behind maximised windows".
+- **Now Playing:** uses the open-source [mediaremote-adapter](https://github.com/ungive/mediaremote-adapter), because macOS 15.4+ blocks apps from reading it directly.
+- **Updates:** the update button downloads and opens the new DMG; there's no silent install.
+
+To build on a Mac: `bash scripts/build-mac-native.sh` (needs Xcode command line tools and CMake), then `npm run dist -- --mac`.
 
 ### CPU temperature (optional)
 

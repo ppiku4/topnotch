@@ -8,6 +8,7 @@ function subscribe(channel, callback) {
 
 // Explicit methods only: the renderer never gets a raw send/invoke.
 contextBridge.exposeInMainWorld('topnotch', {
+  platform: process.platform,
   setPassthrough: (passthrough) => ipcRenderer.send('set-passthrough', !!passthrough),
 
   mediaControl: (action) => ipcRenderer.send('media-control', action),
@@ -94,5 +95,12 @@ contextBridge.exposeInMainWorld('topnotch', {
   onEditorOpen: (callback) => subscribe('editor-open', callback),
   saveEdited: (png, target) => ipcRenderer.invoke('editor-save', new Uint8Array(png), String(target)),
   revealEdited: (file) => ipcRenderer.send('editor-reveal', String(file)),
-  closeEditor: () => ipcRenderer.send('editor-close')
+  closeEditor: () => ipcRenderer.send('editor-close'),
+  removeBackgroundInEditor: () => ipcRenderer.invoke('editor-remove-bg'),
+  downloadBackgroundModel: () => ipcRenderer.invoke('editor-download-model'),
+  onEditorProgress: (callback) => subscribe('editor-progress', callback),
+  getAiModels: () => ipcRenderer.invoke('ai-models-get'),
+  downloadAiModel: (id) => ipcRenderer.invoke('ai-model-download', String(id)),
+  deleteAiModel: (id) => ipcRenderer.invoke('ai-model-delete', String(id)),
+  onAiModels: (callback) => subscribe('ai-models', callback)
 });

@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
-import { bridge } from './bridge.js';
+import { bridge, IS_MAC } from './bridge.js';
 import { useConfig } from './hooks.js';
 import { SPRING_SNAPPY, SPRING_SOFT } from './motion.js';
 import InfoRow from './InfoRow.jsx';
 import {
-  BluetoothIcon, BoltIcon, BookIcon, ClockIcon, CameraIcon, ClipboardIcon, CloseIcon, CoffeeIcon, ExpandIcon, FolderIcon, GlowIcon,
+  BluetoothIcon, BoltIcon, BookIcon, ChipIcon, SparkleIcon, ClockIcon, CameraIcon, ClipboardIcon, CloseIcon, CoffeeIcon, ExpandIcon, FolderIcon, GlowIcon,
   GridIcon, InfoIcon, LayersIcon, LyricsIcon, MonitorIcon, MusicIcon, PaletteIcon, PinIcon, PointerIcon, PulseIcon,
   RefreshIcon, ShrinkIcon, SlidersIcon, SquareIcon, ThermometerIcon, TrayIcon, WeatherIcon, WheelIcon
 } from './icons.jsx';
@@ -127,6 +127,61 @@ function Sensors() {
   );
 }
 
+// Background removal models: download, delete, pick one, and where it runs.
+function AiModels({ config }) {
+  const [status, setStatus] = useState(null);
+  const [errors, setErrors] = useState({});
+  useEffect(() => {
+    bridge.getAiModels().then(setStatus);
+    return bridge.onAiModels(setStatus);
+  }, []);
+  if (!status) return <Row icon={SparkleIcon} title="Models" sub="Checking…" />;
+
+  const download = async (id) => {
+    setErrors((e) => ({ ...e, [id]: '' }));
+    const result = await bridge.downloadAiModel(id);
+    if (!result?.ok) setErrors((e) => ({ ...e, [id]: result?.error || 'Download failed' }));
+  };
+  const remove = (id) => bridge.deleteAiModel(id);
+  const selected = config.bgModel || 'isnet';
+
+  return (
+    <>
+      {status.models.map((m) => (
+        <Row
+          key={m.id}
+          icon={SparkleIcon}
+          title={<>{m.label}{selected === m.id && <span className="row-badge">In use</span>}</>}
+          sub={errors[m.id] || `${m.about} · ${m.size}`}
+        >
+          {m.progress != null ? (
+            <div className="model-progress"><span style={{ width: `${Math.round(m.progress * 100)}%` }} /><em>{Math.round(m.progress * 100)}%</em></div>
+          ) : m.installed ? (
+            <div className="row-buttons">
+              {selected !== m.id && <button className="button" onClick={() => set({ bgModel: m.id })}>Use</button>}
+              <button className="button button-quiet" onClick={() => remove(m.id)}>Delete</button>
+            </div>
+          ) : (
+            <div className="row-buttons">
+              {selected !== m.id && <button className="button button-quiet" onClick={() => set({ bgModel: m.id })}>Use</button>}
+              <button className="button" onClick={() => download(m.id)}>Download</button>
+            </div>
+          )}
+        </Row>
+      ))}
+      <Row
+        icon={ChipIcon}
+        title="Run on"
+        sub={(config.aiDevice === 'gpu'
+          ? `GPU through ${IS_MAC ? 'Core ML' : 'DirectML'}; falls back to the CPU if the GPU refuses. Not always faster: transformer models like BiRefNet often run quicker on a modern CPU.`
+          : 'CPU: works everywhere.') + (status.lastDevice ? ` Last run: ${status.lastDevice.toUpperCase()}.` : '')}
+      >
+        <Segmented id="ai-device" value={config.aiDevice === 'gpu' ? 'gpu' : 'cpu'} onChange={(v) => set({ aiDevice: v })} options={[['gpu', 'GPU'], ['cpu', 'CPU']]} />
+      </Row>
+    </>
+  );
+}
+
 // ── Sections ────────────────────────────────────────────────────────────
 
 function General({ config }) {
@@ -160,7 +215,7 @@ function General({ config }) {
         </Row>
       </Group>
       <Group title="Behaviour">
-        <Row icon={BoltIcon} title="Open at sign-in" sub="Start TopNotch when Windows starts.">
+        <Row icon={BoltIcon} title="Open at sign-in" sub={`Start TopNotch when ${IS_MAC ? 'you log in' : 'Windows starts'}.`}>
           <Toggle checked={!!config.launchAtLogin} onChange={(v) => set({ launchAtLogin: v })} />
         </Row>
         <Row icon={PointerIcon} title="Expand on hover" sub="Open the notch when your cursor reaches it. Off: click the pill to open.">
@@ -169,12 +224,19 @@ function General({ config }) {
         <Row icon={PinIcon} title="Keep open" sub="Don't collapse the expanded notch when the pointer leaves. Same as the pin.">
           <Toggle checked={!!config.keepOpen} onChange={(v) => set({ keepOpen: v })} />
         </Row>
-        <Row icon={ShrinkIcon} title="Hide behind maximised windows" sub="Fade out while a window fills the screen. Hover the top edge to bring it back.">
-          <Toggle checked={!!config.hideBehindMaximized} onChange={(v) => set({ hideBehindMaximized: v })} />
-        </Row>
+        {!IS_MAC && (
+          <Row icon={ShrinkIcon} title="Hide behind maximised windows" sub="Fade out while a window fills the screen. Hover the top edge to bring it back.">
+            <Toggle checked={!!config.hideBehindMaximized} onChange={(v) => set({ hideBehindMaximized: v })} />
+          </Row>
+        )}
       </Group>
-      <Group title="Sensors">
-        <Sensors />
+      {!IS_MAC && (
+        <Group title="Sensors">
+          <Sensors />
+        </Group>
+      )}
+      <Group title="Remove background" aside="Models run on this PC; images never leave it">
+        <AiModels config={config} />
       </Group>
     </>
   );
@@ -241,10 +303,10 @@ function Appearance({ config }) {
       <Row icon={GlowIcon} title="Edge glow" sub="A soft accent-coloured halo around the notch while music plays.">
         <Segmented id="glow" value={config.edgeGlow || 'subtle'} onChange={(v) => set({ edgeGlow: v })} options={[['off', 'Off'], ['subtle', 'Subtle'], ['strong', 'Strong']]} />
       </Row>
-      <Row icon={SquareIcon} title="Corners" sub={config.material === 'glass' ? "Dark glass uses Windows' own 8 px corners." : undefined} disabled={config.material === 'glass'}>
+      <Row icon={SquareIcon} title="Corners" sub={config.material === 'glass' ? "Dark glass uses the system's own window corners." : undefined} disabled={config.material === 'glass'}>
         <Segmented id="corners" value={config.corners || 'rounded'} onChange={(v) => set({ corners: v })} options={[['rounded', 'Rounded'], ['squared', 'Squared']]} />
       </Row>
-      <Row icon={LayersIcon} title="Material" sub="Dark glass blurs the desktop behind the notch (Windows 11 rounds its corners).">
+      <Row icon={LayersIcon} title="Material" sub={IS_MAC ? 'Dark glass blurs the desktop behind the notch with macOS vibrancy.' : 'Dark glass blurs the desktop behind the notch (Windows 11 rounds its corners).'}>
         <Segmented id="material" value={config.material || 'solid'} onChange={(v) => set({ material: v })} options={[['solid', 'Solid'], ['glass', 'Dark glass']]} />
       </Row>
     </Group>
@@ -252,6 +314,10 @@ function Appearance({ config }) {
     </>
   );
 }
+
+// The file wheel's modifier and file manager differ per platform.
+const MOD = IS_MAC ? 'Option' : 'Alt';
+const FILES = IS_MAC ? 'Finder' : 'Explorer';
 
 const WIDGETS = [
   ['lyrics', LyricsIcon, 'Synced lyrics', 'Word-by-word lyrics in the Music tab (lrclib.net).'],
@@ -265,7 +331,7 @@ const WIDGETS = [
   ['stats', PulseIcon, 'System', 'Processor, memory and network speed.'],
   ['bluetooth', BluetoothIcon, 'Bluetooth', 'Paired devices and connect/disconnect pop-ups.'],
   ['charging', BoltIcon, 'Charging pop-ups', 'Laptop plug, unplug and low battery.'],
-  ['fileWheel', PointerIcon, 'Alt+click file wheel', 'Alt+click a file in Explorer or on the desktop to convert, crop or edit it.']
+  ['fileWheel', PointerIcon, `${MOD}+click file wheel`, `${MOD}+click a file in ${FILES} or on the desktop to convert, crop or edit it.`]
 ];
 
 function Widgets({ config }) {
@@ -297,9 +363,9 @@ const TIPS = [
   [ExpandIcon, 'Move it', 'Press and drag the notch (or the empty part of its header) to any screen edge.'],
   [TrayIcon, 'Park files', "Drag files to the notch's edge to drop them on the shelf."],
   [ExpandIcon, 'Seek a song', 'Click anywhere on the progress bar to jump to that point.'],
-  [PointerIcon, 'Convert a file', 'Alt+click an image, document, spreadsheet, presentation, video or song in Explorer. Pick a format on the wheel; the copy lands next to the original.'],
+  [PointerIcon, 'Convert a file', `${MOD}+click an image, document, spreadsheet, presentation, video or song in ${FILES}.` + ' Pick a format on the wheel; the copy lands next to the original.'],
   [LyricsIcon, 'Jump to a lyric', 'In the Music tab, click any line to play from there.'],
-  [CloseIcon, 'Quit', 'Right-click the tray icon and choose Quit TopNotch.']
+  [CloseIcon, 'Quit', IS_MAC ? 'Click the menu bar icon and choose Quit TopNotch.' : 'Right-click the tray icon and choose Quit TopNotch.']
 ];
 
 function Tips() {
@@ -396,7 +462,7 @@ function About() {
       <div className="about-hero">
         <img src="./icon.png" alt="" width={64} height={64} />
         <h2>TopNotch</h2>
-        <div className="row-sub">Version {info?.version ?? '…'} · Dynamic Island for Windows</div>
+        <div className="row-sub">Version {info?.version ?? '…'} · Dynamic Island for {IS_MAC ? 'macOS' : 'Windows'}</div>
         <p>Media, lyrics, system stats, Bluetooth and quick controls in a notch at the top of your screen.</p>
       </div>
       <div className="disclaimer" role="note">
@@ -422,7 +488,9 @@ function About() {
       <Group title="Built with">
         <Row title="Open-Meteo" sub="Weather data, no account needed." />
         <Row title="lrclib.net" sub="Community synced lyrics." />
-        <Row title="windows-smtc-monitor" sub="Media session info from Windows (MIT)." />
+        {IS_MAC
+          ? <Row title="mediaremote-adapter" sub="Now Playing info from macOS (BSD-3-Clause)." />
+          : <Row title="windows-smtc-monitor" sub="Media session info from Windows (MIT)." />}
         <Row title={`Electron ${info?.electron ?? ''}`} sub="React, Vite and framer-motion." />
       </Group>
     </>

@@ -1,5 +1,6 @@
-# Builds the Windows installer and portable exe. Pushing a tag like v0.2.0
-# publishes them to a GitHub Release (the in-app update check reads it).
+# Builds the Windows installer and portable exe, and the macOS (Apple
+# Silicon) DMG and ZIP. Pushing a tag like v0.2.0 publishes them to a GitHub
+# Release (the in-app update check reads it).
 name: Build
 
 on:
@@ -38,3 +39,39 @@ jobs:
           path: |
             release/*.exe
             release/latest.yml
+
+  # Runs after Windows so both don't race to create the same release.
+  mac:
+    needs: windows
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      - name: Native helper and Now Playing adapter
+        run: bash scripts/build-mac-native.sh
+
+      - name: Build
+        run: npx vite build
+
+      # Ad-hoc signed (no Developer ID): users open it the first time with
+      # right-click → Open, or System Settings → Privacy & Security.
+      - name: Package (publish on tags)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+        run: npx electron-builder --mac --arm64 ${{ startsWith(github.ref, 'refs/tags/v') && '--publish always' || '--publish never' }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: topnotch-mac
+          path: |
+            release/*.dmg
+            release/*.zip
+            release/latest-mac.yml

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { bridge } from './bridge.js';
+import { bridge, IS_MAC } from './bridge.js';
 import Activity from './Activities.jsx';
 import { PillLyrics } from './Lyrics.jsx';
 import InfoRow, { weatherColor } from './InfoRow.jsx';
@@ -47,7 +47,8 @@ const WHEEL_STEP = 2;
 const TABS = [
   { id: 'dashboard', label: 'Dashboard', icon: GridIcon },
   { id: 'music', label: 'Music', icon: MusicIcon },
-  { id: 'mixer', label: 'Volume mixer', icon: SlidersIcon },
+  // macOS has no per-app volume API, so no Mixer there.
+  ...(IS_MAC ? [] : [{ id: 'mixer', label: 'Volume mixer', icon: SlidersIcon }]),
   { id: 'bluetooth', label: 'Bluetooth', icon: BluetoothIcon, feature: 'bluetooth' },
   { id: 'clipboard', label: 'Clipboard', icon: ClipboardIcon, feature: 'clipboard' },
   { id: 'timer', label: 'Focus timer', icon: CoffeeIcon, feature: 'timer' },
@@ -196,7 +197,7 @@ export default function Island() {
     // The Music tab grows taller so about four lyric lines fit.
     ...(size === 'panel' && activeTab === 'music' && media ? { height: 350 } : null),
     ...(squared ? { borderRadius: SQUARED_RADIUS[size] ?? SQUARED_RADIUS.compact } : null),
-    // Dark glass: Windows rounds the blur window's corners by a fixed 8 DIP
+    // Dark glass: the OS rounds the blur window's corners by a fixed 8 DIP
     // and can't be clipped further, so the island matches that radius
     // (divided by the notch size, which is applied as CSS zoom).
     ...(glass ? { borderRadius: GLASS_RADIUS / (config.scale || 1) } : null),

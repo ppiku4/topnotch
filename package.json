@@ -62,14 +62,11 @@
       "electron/**",
       "assets/**",
       "package.json",
-      "!node_modules/koffi/build/koffi/!(win32_x64)/**",
       "!node_modules/koffi/src/**",
       "!node_modules/koffi/doc/**",
       "!node_modules/ag-psd/{src,dist-es}/**",
-      "!node_modules/onnxruntime-node/bin/napi-v6/{darwin,linux}/**",
-      "!node_modules/onnxruntime-node/bin/napi-v6/win32/arm64/**",
-      "!node_modules/onnxruntime-node/bin/napi-v6/win32/x64/{DirectML,dxcompiler,dxil}.dll",
-      "!node_modules/onnxruntime-node/script/**"
+      "!node_modules/onnxruntime-node/script/**",
+      "!node_modules/onnxruntime-node/bin/napi-v6/linux/**"
     ],
     "asarUnpack": [
       "electron/system-helper.cs",
@@ -94,7 +91,14 @@
           ]
         }
       ],
-      "icon": "assets/icon.png"
+      "icon": "assets/icon.png",
+      "files": [
+        "!node_modules/koffi/build/koffi/!(win32_x64)/**",
+        "!node_modules/onnxruntime-node/bin/napi-v6/darwin/**",
+        "!node_modules/onnxruntime-node/bin/napi-v6/win32/arm64/**",
+        "!node_modules/onnxruntime-node/bin/napi-v6/win32/x64/{dxcompiler,dxil}.dll",
+        "!electron/mac/**"
+      ]
     },
     "nsis": {
       "oneClick": false,
@@ -108,6 +112,53 @@
         "repo": "topnotch",
         "releaseType": "release"
       }
-    ]
+    ],
+    "mac": {
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "arm64"
+          ]
+        }
+      ],
+      "icon": "assets/icon.png",
+      "category": "public.app-category.utilities",
+      "identity": "-",
+      "hardenedRuntime": false,
+      "gatekeeperAssess": false,
+      "artifactName": "TopNotch-${version}-${arch}.${ext}",
+      "minimumSystemVersion": "12.0",
+      "files": [
+        "!node_modules/koffi/build/koffi/!(darwin_arm64)/**",
+        "!node_modules/onnxruntime-node/bin/napi-v6/win32/**",
+        "!electron/system-helper.{cs,ps1}",
+        "!node_modules/@coooookies/**"
+      ],
+      "extraResources": [
+        {
+          "from": "build/mac/topnotch-helper",
+          "to": "topnotch-helper"
+        },
+        {
+          "from": "build/mac/mediaremote",
+          "to": "mediaremote"
+        }
+      ],
+      "extendInfo": {
+        "LSUIElement": true,
+        "NSAppleEventsUsageDescription": "TopNotch asks Finder which file you Option-clicked, to open the file wheel.",
+        "NSBluetoothAlwaysUsageDescription": "TopNotch shows your Bluetooth devices and their battery levels."
+      }
+    },
+    "dmg": {
+      "title": "TopNotch ${version}"
+    }
   }
 }

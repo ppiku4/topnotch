@@ -93,6 +93,7 @@ export const GlowIcon = () => <Stroke><circle cx="12" cy="12" r="4" /><circle cx
 export const SquareIcon = () => <Stroke><rect x="4.5" y="4.5" width="15" height="15" rx="4" /></Stroke>;
 export const LayersIcon = () => <Stroke><path d="M12 3.5 3 8.5l9 5 9-5zM3 13l9 5 9-5" /></Stroke>;
 export const ClockIcon = () => <Stroke><circle cx="12" cy="12" r="8.5" /><path d="M12 7.5V12l3 2" /></Stroke>;
+export const SparkleIcon = () => <Stroke><path d="M12 3l1.6 3.9L17.5 8.5l-3.9 1.6L12 14l-1.6-3.9L6.5 8.5l3.9-1.6z" /><path d="M5 15l.8 1.9 1.9.8-1.9.8L5 20.4l-.8-1.9-1.9-.8 1.9-.8zM18 14l.6 1.4 1.4.6-1.4.6-.6 1.4-.6-1.4-1.4-.6 1.4-.6z" /></Stroke>;
 export const ChipIcon = () => <Stroke><rect x="6" y="6" width="12" height="12" rx="2" /><rect x="9.5" y="9.5" width="5" height="5" rx="1" /><path d="M9 3v3M15 3v3M9 18v3M15 18v3M3 9h3M3 15h3M18 9h3M18 15h3" /></Stroke>;
 export const MemoryIcon = () => <Stroke><rect x="3" y="7" width="18" height="10" rx="1.6" /><path d="M7 10v4M11 10v4M15 10v4M6 17v2.5M10 17v2.5M14 17v2.5M18 17v2.5" /></Stroke>;
 export const SignalIcon = () => <Stroke><path d="M4 18.5a11 11 0 0 1 16 0M7 15.5a7 7 0 0 1 10 0M10 12.6a3 3 0 0 1 4 0" /><circle className="fill" cx="12" cy="18.5" r="1.2" /></Stroke>;

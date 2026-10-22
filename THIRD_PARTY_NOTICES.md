@@ -11,13 +11,14 @@ TopNotch is MIT-licensed (see [LICENSE](LICENSE)). It builds on the projects bel
 | [framer-motion](https://www.framer.com/motion/) | MIT | Animations |
 | [koffi](https://koffi.dev/) | MIT | Calls into user32/gdi32 (media keys, window region, acrylic) |
 | [@coooookies/windows-smtc-monitor](https://github.com/LeagueTavern/node-windows-smtc-monitor) | MIT | Now-playing info from Windows media sessions |
+| [mediaremote-adapter](https://github.com/ungive/mediaremote-adapter) (macOS build only) | BSD-3-Clause | Now-playing info on macOS 15.4 and later; built from v0.7.7 and shipped unmodified with its license |
 | [sharp](https://sharp.pixelplumbing.com/) | Apache-2.0 | Image conversion (file wheel) |
 | [libvips](https://www.libvips.org/) (in @img/sharp-win32-x64) | LGPL-3.0-or-later | Image codecs behind sharp; shipped as its own unmodified DLLs |
 | [ag-psd](https://github.com/Agamnentzar/ag-psd) | MIT | Reading and writing PSD files |
 | [marked](https://marked.js.org/) | MIT | Markdown → HTML/PDF |
 | [turndown](https://github.com/mixmark-io/turndown) | MIT | HTML → Markdown |
 | [mammoth](https://github.com/mwilliamson/mammoth.js) | BSD-2-Clause | Reading .docx |
-| [ONNX Runtime](https://onnxruntime.ai/) (onnxruntime-node, CPU only) | MIT | Running the background-removal model |
+| [ONNX Runtime](https://onnxruntime.ai/) (onnxruntime-node) with DirectML | MIT | Running the background-removal models on CPU or GPU |
 | [yaml](https://eemeli.org/yaml/) | ISC | Reading lrclib's Lyricsfile (line end and word times) |
 | [unpdf](https://github.com/unjs/unpdf) / [pdf.js](https://mozilla.github.io/pdf.js/) | MIT / Apache-2.0 | Text from PDF files |
 
@@ -26,9 +27,9 @@ TopNotch is MIT-licensed (see [LICENSE](LICENSE)). It builds on the projects bel
 | Project | License | Used for |
 | --- | --- | --- |
 | [LibreHardwareMonitor](https://github.com/LibreHardwareMonitor/LibreHardwareMonitor) v0.9.6 | [MPL-2.0](https://github.com/LibreHardwareMonitor/LibreHardwareMonitor/blob/master/LICENSE) | CPU temperature. Settings → General → Sensors downloads the unmodified official release into `%APPDATA%\topnotch\vendor`. Its source is available at the link. |
-| [FFmpeg](https://ffmpeg.org/) 7.1.1 essentials build by [gyan.dev](https://www.gyan.dev/ffmpeg/builds/) | [GPL-3.0](https://www.gnu.org/licenses/gpl-3.0.html) | Audio/video conversion in the file wheel, only if no `ffmpeg` is on your PATH. The wheel asks before downloading the unmodified build (checked against a pinned SHA-256) into `%APPDATA%\topnotch\vendor\ffmpeg`; its license file is kept next to it. FFmpeg runs as a separate program. |
+| [FFmpeg](https://ffmpeg.org/) 7.1.1 essentials build by [gyan.dev](https://www.gyan.dev/ffmpeg/builds/) (Windows) / 6.1.1 static build from [ffmpeg-static](https://github.com/eugeneware/ffmpeg-static) (macOS) | [GPL-3.0](https://www.gnu.org/licenses/gpl-3.0.html) | Audio/video conversion in the file wheel, only if no `ffmpeg` is on your PATH. The wheel asks before downloading the unmodified build (checked against a pinned SHA-256) into `%APPDATA%\topnotch\vendor\ffmpeg`; its license file is kept next to it. FFmpeg runs as a separate program. |
 
-| [ISNet (DIS)](https://github.com/xuebinqin/DIS) "general use" model, ONNX export from [rembg](https://github.com/danielgatis/rembg) | Apache-2.0 | Remove BG in the file wheel. The wheel asks before downloading the unmodified 179 MB model (checked against a pinned SHA-256) into `%APPDATA%\topnotch\vendor\isnet`. It runs locally; images never leave your PC. |
+| [ISNet (DIS)](https://github.com/xuebinqin/DIS) "general use" (179 MB) and [BiRefNet](https://github.com/ZhengPeng7/BiRefNet) Lite / General / Portrait (224 MB / 973 MB / 973 MB), ONNX exports from [rembg](https://github.com/danielgatis/rembg) | Apache-2.0 (ISNet), MIT (BiRefNet) | Remove background in the file wheel and image editor. Each model downloads only when you ask (Settings → General, or the first time you use it), checked against a pinned SHA-256, into `%APPDATA%\topnotch\vendor\bgmodels`. They run locally on the CPU or, if you choose, the GPU through DirectML; images never leave your PC. |
 
 ## Used if you have it installed
 

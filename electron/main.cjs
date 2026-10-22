@@ -4,7 +4,7 @@ const path = require('path');
 const { fork, spawn } = require('child_process');
 const readline = require('readline');
 const { app, BrowserWindow, Menu, Notification, Tray, ipcMain, nativeImage, powerMonitor, screen, shell } = require('electron');
-const { pressMediaKey, isLeftButtonDown, isKeyDown, forceForeground, maximizedForegroundRect, setAcrylic, setRoundedCorners } = require('./win32.cjs');
+const { pressMediaKey, isLeftButtonDown, isKeyDown, forceForeground, maximizedForegroundRect, setAcrylic, setRoundedCorners } = require('./native.cjs');
 const { createSystemService } = require('./system-service.cjs');
 const { createConfig, sanitizePatch } = require('./config.cjs');
 const { createClipboardHistory } = require('./clipboard.cjs');
@@ -45,6 +45,7 @@ const WINDOW_SIZE = {
   vertical: { width: 720, height: 780 }
 };
 const ASSETS = path.join(__dirname, '..', 'assets');
+const MAC = process.platform === 'darwin';
 const CALL_APPS = /zoom|teams|discord|slack|skype|webex|whatsapp|telegram|signal|meet|facetime/i;
 
 let notchWindow = null;
@@ -211,6 +212,8 @@ function endDockDrag(save) {
 function createNotchWindow() {
   notchWindow = new BrowserWindow({
     ...notchBounds(),
+    // macOS: a panel floats over full-screen apps on every Space.
+    ...(MAC ? { type: 'panel', enableLargerThanScreen: true } : null),
     frame: false,
     transparent: true,
     backgroundColor: '#00000000',
@@ -298,7 +301,9 @@ function openSettings() {
 }
 
 function createTray() {
-  tray = new Tray(nativeImage.createFromPath(path.join(ASSETS, 'tray.png')));
+  const trayIcon = nativeImage.createFromPath(path.join(ASSETS, MAC ? 'trayTemplate.png' : 'tray.png'));
+  if (MAC) trayIcon.setTemplateImage(true); // follows the light/dark menu bar
+  tray = new Tray(trayIcon);
   tray.setToolTip('TopNotch');
   const rebuild = () => {
     const current = config.get();
@@ -326,8 +331,17 @@ function applyLoginItem(enabled) {
 
 // ── Media, lyrics ─────────────────────────────────────────────────────────
 
+// macOS reads Now Playing through the MediaRemote adapter (perl script +
+// framework); packaged builds ship it in Resources, dev builds in build/mac.
+function mediaRemotePaths() {
+  const packaged = process.resourcesPath && path.join(process.resourcesPath, 'mediaremote');
+  const dir = packaged && fs.existsSync(packaged) ? packaged : path.join(__dirname, '..', 'build', 'mac', 'mediaremote');
+  return [path.join(dir, 'mediaremote-adapter.pl'), path.join(dir, 'MediaRemoteAdapter.framework')];
+}
+
 function startMediaWorker() {
-  mediaWorker = fork(path.join(__dirname, 'media-worker.cjs'), [], {
+  const [script, args] = MAC ? ['media-worker-mac.cjs', mediaRemotePaths()] : ['media-worker.cjs', []];
+  mediaWorker = fork(path.join(__dirname, script), args, {
     env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
     stdio: ['ignore', 'inherit', 'inherit', 'ipc']
   });
@@ -429,7 +443,7 @@ function onHelperEvent(msg) {
   } else if (msg.type === 'mixer') {
     publishMixer(msg.sessions);
   } else if (msg.type === 'net') {
-    lastNet = { rx: msg.rx, tx: msg.tx, gpu: msg.gpu, cpuTemp: msg.cpuTemp };
+    lastNet = { rx: msg.rx, tx: msg.tx, gpu: msg.gpu, cpuTemp: msg.cpuTemp, memUsed: msg.memUsed };
   } else if (msg.type === 'bluetooth') {
     const previous = bluetoothDevices;
     bluetoothDevices = msg.devices;
@@ -506,16 +520,20 @@ function setStatsVisible(on) {
     let previous = cpuTimes();
     let sensorTick = 0;
     statsTimer = setInterval(() => {
-      if (sensorTick++ % 2 === 0) sensors?.readCpuTemperature().then((t) => { lhmCpuTemp = t; });
+      // LibreHardwareMonitor is Windows-only.
+      if (!MAC && sensorTick++ % 2 === 0) sensors?.readCpuTemperature().then((t) => { lhmCpuTemp = t; });
       const now = cpuTimes();
       const total = now.total - previous.total;
       const cpu = total > 0 ? Math.round(100 * (1 - (now.idle - previous.idle) / total)) : 0;
       previous = now;
-      const ram = Math.round(100 * (1 - os.freemem() / os.totalmem()));
+      // macOS counts reclaimable file cache as used in os.freemem(); its
+      // helper reports memory the way Activity Monitor does.
+      const used = MAC && lastNet.memUsed > 0 ? lastNet.memUsed : os.totalmem() - os.freemem();
+      const ram = Math.round((100 * used) / os.totalmem());
       send('stats', {
         cpu,
         ram,
-        ramUsedGb: (os.totalmem() - os.freemem()) / 1073741824,
+        ramUsedGb: used / 1073741824,
         ramTotalGb: os.totalmem() / 1073741824,
         rx: lastNet.rx,
         tx: lastNet.tx,
@@ -705,10 +723,14 @@ ipcMain.on('set-passthrough', (event, passthrough) => {
 });
 
 ipcMain.on('media-control', (event, action) => {
-  if (fromNotch(event) && ALLOWED_MEDIA_KEYS.has(action)) pressMediaKey(action);
+  if (!fromNotch(event) || !ALLOWED_MEDIA_KEYS.has(action)) return;
+  if (MAC) mediaWorker?.send({ type: 'control', action });
+  else pressMediaKey(action);
 });
 ipcMain.on('media-seek', (event, seconds) => {
-  if (fromNotch(event) && Number.isFinite(seconds) && lastMedia) systemService?.seek(seconds, lastMedia.appId);
+  if (!fromNotch(event) || !Number.isFinite(seconds) || !lastMedia) return;
+  if (MAC) mediaWorker?.send({ type: 'seek', seconds });
+  else systemService?.seek(seconds, lastMedia.appId);
 });
 ipcMain.on('set-volume', (event, value) => {
   if (fromNotch(event) && Number.isFinite(value)) systemService?.setVolume(value);
@@ -742,7 +764,13 @@ ipcMain.on('app-volume', (event, pid, value) => {
 ipcMain.on('app-mute', (event, pid) => { if (fromNotch(event) && Number.isInteger(pid)) systemService?.toggleAppMute(pid); });
 
 const SYSTEM32 = path.join(process.env.SystemRoot || 'C:/Windows', 'System32');
-const QUICK_TOOLS = {
+const QUICK_TOOLS = MAC ? {
+  calculator: () => shell.openPath('/System/Applications/Calculator.app'),
+  snip: () => shell.openPath('/System/Applications/Utilities/Screenshot.app'),
+  taskmgr: () => shell.openPath('/System/Applications/Utilities/Activity Monitor.app'),
+  bluetooth: () => shell.openExternal('x-apple.systempreferences:com.apple.BluetoothSettings'),
+  sound: () => shell.openExternal('x-apple.systempreferences:com.apple.Sound-Settings.extension')
+} : {
   calculator: () => shell.openPath(path.join(SYSTEM32, 'calc.exe')),
   snip: () => shell.openExternal('ms-screenclip:'),
   taskmgr: () => shell.openPath(path.join(SYSTEM32, 'Taskmgr.exe')),
@@ -922,10 +950,11 @@ function stopWheelWatch() {
 async function openWheel(file, physical) {
   const menu = converter.menuFor(file);
   if (!menu) return;
-  wheelMenu = { ...menu, downloadSizes: converter.downloadSizes };
+  wheelMenu = { ...menu, downloadSizes: converter.downloadSizes() };
   if (!wheelWindow || wheelWindow.isDestroyed()) await createWheelWindow();
-  // The helper reports physical pixels; centre the wheel on the click.
-  const point = screen.screenToDipPoint({ x: physical.x, y: physical.y });
+  // The Windows helper reports physical pixels, the mac one points already;
+  // centre the wheel on the click.
+  const point = MAC ? { x: physical.x, y: physical.y } : screen.screenToDipPoint({ x: physical.x, y: physical.y });
   const area = screen.getDisplayNearestPoint(point).workArea;
   const x = Math.round(Math.max(area.x, Math.min(area.x + area.width - WHEEL_SIZE, point.x - WHEEL_SIZE / 2)));
   const y = Math.round(Math.max(area.y, Math.min(area.y + area.height - WHEEL_SIZE, point.y - WHEEL_SIZE / 2)));
@@ -1055,16 +1084,58 @@ ipcMain.on('editor-reveal', (event, file) => {
   if (fromEditor(event) && convertedFiles.has(file)) shell.showItemInFolder(file);
 });
 ipcMain.on('editor-close', (event) => { if (fromEditor(event)) editorWindow.close(); });
+ipcMain.handle('ai-models-get', (event) => (fromOurWindows(event) ? converter.models.status() : null));
+ipcMain.handle('ai-model-download', async (event, id) => {
+  if (!fromOurWindows(event) || typeof id !== 'string') return { ok: false };
+  try {
+    await converter.models.download(id);
+    return { ok: true };
+  } catch (error) {
+    log(`model ${id} download: ${error.message}`);
+    return { ok: false, error: error.message };
+  }
+});
+ipcMain.handle('ai-model-delete', async (event, id) => {
+  if (!fromOurWindows(event) || typeof id !== 'string') return { ok: false };
+  await converter.models.remove(id);
+  return { ok: true };
+});
+ipcMain.handle('editor-remove-bg', async (event) => {
+  if (!fromEditor(event) || !editorState) return null;
+  if (!converter.engines().bgmodel) return { needs: 'bgmodel', size: converter.downloadSizes().bgmodel };
+  try {
+    return { image: await converter.removeBackgroundImage(editorState.file) };
+  } catch (error) {
+    log('editor remove background: ' + error.message);
+    return { error: error.message };
+  }
+});
+ipcMain.handle('editor-download-model', async (event) => {
+  if (!fromEditor(event)) return { ok: false };
+  try {
+    await converter.downloadEngine('bgmodel', (progress) => editorWindow?.webContents.send('editor-progress', progress));
+    return { ok: true };
+  } catch (error) {
+    log('bgmodel download: ' + error.message);
+    return { ok: false, error: error.message };
+  }
+});
 
 // ── Lifecycle ─────────────────────────────────────────────────────────────
 
 app.whenReady().then(() => {
+  // A menu-bar app on macOS: no Dock icon (Info.plist also sets LSUIElement).
+  if (MAC) app.dock?.hide();
   const dir = app.getPath('userData');
   config = createConfig(dir);
   clipboardHistory = createClipboardHistory({ dir, onChange: (items) => send('clipboard', items) });
   shelf = createShelf({ dir, onChange: (items) => send('shelf', items) });
   sensors = createSensors({ dir, log });
-  converter = createConverter({ dir, log, renderPdf, onJob: onConvertJob });
+  converter = createConverter({
+    dir, log, renderPdf, onJob: onConvertJob,
+    getSettings: () => config.get(),
+    onModelStatus: (status) => broadcast('ai-models', status)
+  });
   installer = createInstaller({ app, shell, log, onProgress: (progress) => broadcast('update-progress', progress) });
   weather = createWeather({
     getConfig: () => config.get(),

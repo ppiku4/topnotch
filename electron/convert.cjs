@@ -31,10 +31,24 @@ const TARGETS = {
   audio: ['mp3', 'wav', 'flac', 'm4a', 'ogg', 'opus']
 };
 
-const FFMPEG_VERSION = '7.1.1';
-const FFMPEG_URL = `https://github.com/GyanD/codexffmpeg/releases/download/${FFMPEG_VERSION}/ffmpeg-${FFMPEG_VERSION}-essentials_build.zip`;
-const FFMPEG_SHA256 = '04861d3339c5ebe38b56c19a15cf2c0cc97f5de4fa8910e4d47e5e6404e4a2d4';
-const FFMPEG_SIZE = '88 MB';
+const MAC = process.platform === 'darwin';
+// Windows: gyan.dev's essentials zip. macOS (Apple Silicon): the static
+// build ffmpeg-static publishes, a gzipped single binary.
+const FFMPEG = MAC ? {
+  version: '6.1.1',
+  url: 'https://github.com/eugeneware/ffmpeg-static/releases/download/b6.1.1/ffmpeg-darwin-arm64.gz',
+  sha256: '8923876afa8db5585022d7860ec7e589af192f441c56793971276d450ed3bbfa',
+  size: '19 MB',
+  exe: 'ffmpeg'
+} : {
+  version: '7.1.1',
+  url: 'https://github.com/GyanD/codexffmpeg/releases/download/7.1.1/ffmpeg-7.1.1-essentials_build.zip',
+  sha256: '04861d3339c5ebe38b56c19a15cf2c0cc97f5de4fa8910e4d47e5e6404e4a2d4',
+  size: '88 MB',
+  exe: 'ffmpeg.exe'
+};
+const FFMPEG_VERSION = FFMPEG.version;
+const FFMPEG_SIZE = FFMPEG.size;
 const LIBREOFFICE_URL = 'https://www.libreoffice.org/download/download-libreoffice/';
 
 const extOf = (file) => {
@@ -331,6 +345,10 @@ const OFFICE_IMPORT = {
 };
 
 function findLibreOffice() {
+  if (MAC) {
+    const app = '/Applications/LibreOffice.app/Contents/MacOS/soffice';
+    return fs.existsSync(app) ? app : null;
+  }
   const roots = [process.env.ProgramFiles, process.env['ProgramFiles(x86)'], process.env.LOCALAPPDATA && path.join(process.env.LOCALAPPDATA, 'Programs')].filter(Boolean);
   for (const root of roots) {
     const exe = path.join(root, 'LibreOffice', 'program', 'soffice.exe');
@@ -431,9 +449,9 @@ async function ffmpegConvert(ffmpeg, file, ext, out, onProgress) {
 
 // ── Service ───────────────────────────────────────────────────────────────
 
-function createConverter({ dir, log, renderPdf, onJob }) {
+function createConverter({ dir, log, renderPdf, onJob, getSettings, onModelStatus }) {
   const vendor = path.join(dir, 'vendor', 'ffmpeg');
-  const vendorExe = path.join(vendor, 'ffmpeg.exe');
+  const vendorExe = path.join(vendor, FFMPEG.exe);
   let ffmpegOnPath;
   let downloading = null;
   let nextId = 1;
@@ -441,8 +459,10 @@ function createConverter({ dir, log, renderPdf, onJob }) {
   function pathFfmpeg() {
     if (ffmpegOnPath !== undefined) return ffmpegOnPath;
     ffmpegOnPath = null;
-    for (const folder of (process.env.PATH || '').split(path.delimiter)) {
-      const exe = path.join(folder.replace(/"/g, ''), 'ffmpeg.exe');
+    // Apps started from Finder get a bare PATH; Homebrew lives outside it.
+    const extra = MAC ? ['/opt/homebrew/bin', '/usr/local/bin'] : [];
+    for (const folder of [...(process.env.PATH || '').split(path.delimiter), ...extra]) {
+      const exe = path.join(folder.replace(/"/g, ''), FFMPEG.exe);
       if (folder && fs.existsSync(exe)) { ffmpegOnPath = exe; break; }
     }
     return ffmpegOnPath;
@@ -459,7 +479,7 @@ function createConverter({ dir, log, renderPdf, onJob }) {
     return null;
   }
 
-  const remover = createBackgroundRemover({ dir, log });
+  const remover = createBackgroundRemover({ dir, log, getSettings, onStatus: onModelStatus });
 
   function engines() {
     return { ffmpeg: !!ffmpeg(), office: !!findLibreOffice(), bgmodel: remover.installed() };
@@ -492,8 +512,8 @@ function createConverter({ dir, log, renderPdf, onJob }) {
     downloading = (async () => {
       const work = tempDir();
       try {
-        const zip = path.join(work, 'ffmpeg.zip');
-        const response = await fetch(FFMPEG_URL);
+        const zip = path.join(work, MAC ? 'ffmpeg.gz' : 'ffmpeg.zip');
+        const response = await fetch(FFMPEG.url);
         if (!response.ok) throw new Error(`Download failed (${response.status})`);
         const total = Number(response.headers.get('content-length')) || 0;
         const hash = crypto.createHash('sha256');
@@ -506,7 +526,14 @@ function createConverter({ dir, log, renderPdf, onJob }) {
           if (total) onProgress?.(received / total);
         }
         await new Promise((resolve, reject) => outFile.end((error) => (error ? reject(error) : resolve())));
-        if (hash.digest('hex') !== FFMPEG_SHA256) throw new Error('ffmpeg download failed its checksum');
+        if (hash.digest('hex') !== FFMPEG.sha256) throw new Error('ffmpeg download failed its checksum');
+        if (MAC) {
+          fs.mkdirSync(vendor, { recursive: true });
+          await fs.promises.writeFile(vendorExe, require('zlib').gunzipSync(await fs.promises.readFile(zip)));
+          await fs.promises.chmod(vendorExe, 0o755);
+          log(`ffmpeg ${FFMPEG_VERSION} installed`);
+          return vendorExe;
+        }
         // Windows' own bsdtar reads zip files.
         await run(path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'tar.exe'), ['-xf', zip, '-C', work]);
         const folder = fs.readdirSync(work).find((name) => name.startsWith('ffmpeg-') && fs.statSync(path.join(work, name)).isDirectory());
@@ -543,9 +570,15 @@ function createConverter({ dir, log, renderPdf, onJob }) {
     }
   }
 
+  // The editor's Remove background: the cut-out as a PNG data URL.
+  async function removeBackgroundImage(file) {
+    const png = await remover.removeBackground((await loadImage(file)).rotate(), null);
+    return `data:image/png;base64,${png.toString('base64')}`;
+  }
+
   function downloadEngine(name, onProgress) {
     if (name === 'ffmpeg') return downloadFfmpeg(onProgress);
-    if (name === 'bgmodel') return remover.download(onProgress);
+    if (name === 'bgmodel') return remover.download(undefined, onProgress);
     return Promise.reject(new Error('Unknown download'));
   }
 
@@ -621,7 +654,9 @@ function createConverter({ dir, log, renderPdf, onJob }) {
     engines,
     downloadEngine,
     removeBackground,
-    downloadSizes: { ffmpeg: FFMPEG_SIZE, bgmodel: remover.size },
+    removeBackgroundImage,
+    downloadSizes: () => ({ ffmpeg: FFMPEG_SIZE, bgmodel: `${remover.label()} · ${remover.size()}` }),
+    models: { status: remover.status, download: remover.download, remove: remover.remove },
     libreOfficeUrl: LIBREOFFICE_URL
   };
 }

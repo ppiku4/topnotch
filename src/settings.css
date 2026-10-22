@@ -1,6 +1,13 @@
 /* ── Settings window: sidebar + grouped cards ──────────────────────────── */
 
 html.is-settings, html.is-settings body { background: #141416; }
+.row-badge { margin-left: 8px; padding: 2px 7px; border-radius: 8px; background: color-mix(in srgb, var(--accent) 18%, transparent); color: var(--accent); font-size: 10.5px; font-weight: 650; vertical-align: 1px; }
+.row-buttons { display: flex; gap: 6px; }
+.button.button-quiet { background: transparent; color: var(--text-dim); }
+.button.button-quiet:hover { color: var(--text); }
+.model-progress { position: relative; width: 140px; height: 26px; border-radius: 8px; background: rgba(255, 255, 255, 0.06); overflow: hidden; }
+.model-progress span { position: absolute; inset: 0 auto 0 0; background: color-mix(in srgb, var(--accent) 35%, transparent); transition: width 0.2s ease; }
+.model-progress em { position: relative; display: grid; place-items: center; height: 100%; font-style: normal; font-size: 12px; font-variant-numeric: tabular-nums; }
 .drag { -webkit-app-region: drag; }
 .no-drag, .drag button, .drag select, .drag input { -webkit-app-region: no-drag; }
 

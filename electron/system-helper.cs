@@ -811,8 +811,11 @@ static class FileClick {
     }
     static object Get(object target, string name) { return Invoke(target, name, System.Reflection.BindingFlags.GetProperty); }
 
-    // Folder shown by the Explorer window that owns hwnd, via Shell.Application.
-    static string ExplorerFolder(IntPtr root) {
+    // Folders shown by the Explorer window that owns hwnd, via Shell.Application.
+    // Windows 11 tabs all report the window's HWND, so every tab is returned
+    // and the caller looks for the clicked item in each.
+    static List<object> ExplorerFolders(IntPtr root) {
+        var result = new List<object>();
         var shell = Activator.CreateInstance(Type.GetTypeFromProgID("Shell.Application"));
         var windows = Invoke(shell, "Windows", System.Reflection.BindingFlags.InvokeMethod);
         int count = (int)Get(windows, "Count");
@@ -822,10 +825,31 @@ static class FileClick {
             if (window == null) continue;
             try {
                 if (new IntPtr(Convert.ToInt64(Get(window, "HWND"))) != root) continue;
-                var self = Get(Get(Get(window, "Document"), "Folder"), "Self");
-                return (string)Get(self, "Path");
+                result.Add(Get(Get(window, "Document"), "Folder"));
             } catch { }
         }
+        return result;
+    }
+
+    // Virtual views (Home, Recent, search results) have no folder on disk;
+    // find the item by its display name and take the file it points to.
+    static string FindInShellFolder(object folder, string name) {
+        try {
+            var items = Invoke(folder, "Items", System.Reflection.BindingFlags.InvokeMethod);
+            int count = (int)Get(items, "Count");
+            for (int i = 0; i < count && i < 5000; i++) {
+                object item = null;
+                try { item = Invoke(items, "Item", System.Reflection.BindingFlags.InvokeMethod, i); } catch { }
+                if (item == null) continue;
+                string itemName = Get(item, "Name") as string;
+                string path = Get(item, "Path") as string;
+                if (path == null) continue;
+                if (string.Equals(itemName, name, StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(System.IO.Path.GetFileName(path), name, StringComparison.OrdinalIgnoreCase)) {
+                    if (System.IO.File.Exists(path)) return path;
+                }
+            }
+        } catch { }
         return null;
     }
 
@@ -856,13 +880,25 @@ static class FileClick {
 
         IntPtr root = GetAncestor(WindowFromPoint(pt), 2);
         string cls = ClassOf(root);
-        var folders = new List<string>();
-        if (cls == "CabinetWClass") folders.Add(ExplorerFolder(root));
-        else {
-            folders.Add(Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory));
-            folders.Add(Environment.GetFolderPath(Environment.SpecialFolder.CommonDesktopDirectory));
+        string file = null;
+        if (cls == "CabinetWClass") {
+            var tabs = ExplorerFolders(root);
+            var paths = new List<string>();
+            foreach (var folder in tabs) {
+                try {
+                    string path = Get(Get(folder, "Self"), "Path") as string;
+                    if (path != null && System.IO.Directory.Exists(path)) paths.Add(path);
+                } catch { }
+            }
+            file = MatchFile(paths, name);
+            if (file == null) foreach (var folder in tabs) { file = FindInShellFolder(folder, name); if (file != null) break; }
+            if (file == null) Helper.EmitError("file-click: '" + name + "' not found in " + tabs.Count + " Explorer tab(s)");
+        } else {
+            file = MatchFile(new[] {
+                Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory),
+                Environment.GetFolderPath(Environment.SpecialFolder.CommonDesktopDirectory)
+            }, name);
         }
-        string file = MatchFile(folders, name);
         if (file == null || !extensions.Contains(System.IO.Path.GetExtension(file))) return null;
         return file;
     }

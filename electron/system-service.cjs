@@ -1,24 +1,37 @@
+const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
 const readline = require('readline');
 
-// Owns the long-lived PowerShell helper (system-helper.cs) and turns its
-// JSON lines into level updates. Restarts the helper if it exits.
+// Owns the long-lived native helper and turns its JSON lines into level
+// updates: system-helper.cs (compiled by PowerShell) on Windows, the Swift
+// topnotch-helper binary on macOS. Restarts the helper if it exits.
 function createSystemService({ onLevels, onEvent = () => {}, log = console.log }) {
   const levels = { volume: null, muted: false, brightness: null, brightnessSupported: false };
   let child = null;
   let stopped = false;
   let restartDelay = 1000;
 
-  function start() {
+  function spawnHelper() {
+    if (process.platform === 'darwin') {
+      // Packaged: Contents/Resources/topnotch-helper; dev: build/mac/.
+      const packaged = process.resourcesPath && path.join(process.resourcesPath, 'topnotch-helper');
+      const exe = packaged && fs.existsSync(packaged) ? packaged : path.join(__dirname, '..', 'build', 'mac', 'topnotch-helper');
+      return spawn(exe, [], { stdio: ['pipe', 'pipe', 'pipe'] });
+    }
     // Packaged builds keep the helper outside the ASAR (asarUnpack) because
     // PowerShell can't read files inside it.
     const dir = __dirname.replace(/app\.asar([\\/]|$)/, 'app.asar.unpacked$1');
-    child = spawn('powershell.exe', [
+    return spawn('powershell.exe', [
       '-NoProfile', '-NonInteractive', '-MTA', '-ExecutionPolicy', 'Bypass',
       '-File', path.join(dir, 'system-helper.ps1'),
       '-SourcePath', path.join(dir, 'system-helper.cs')
     ], { windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
+  }
+
+  function start() {
+    child = spawnHelper();
+    child.on('error', (error) => log('[system-helper] ' + error.message));
 
     readline.createInterface({ input: child.stdout }).on('line', handleLine);
     child.stderr.on('data', (chunk) => log('[system-helper] ' + String(chunk).trim()));

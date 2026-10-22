@@ -42,13 +42,16 @@ async function checkForUpdate(currentVersion) {
 // checks it against the SHA-512 in latest.yml, then runs it silently and
 // relaunches the app. Portable and development copies can't replace
 // themselves, so the new exe is downloaded to the Downloads folder instead.
+// macOS builds aren't signed with a Developer ID, which Squirrel.Mac needs,
+// so there the new DMG is downloaded and opened for a drag-to-install.
 const fs = require('fs');
 const path = require('path');
 const { once } = require('events');
 
 function createInstaller({ app, shell, log, onProgress }) {
   const portable = !!process.env.PORTABLE_EXECUTABLE_FILE;
-  const canSelfInstall = app.isPackaged && !portable;
+  const mac = process.platform === 'darwin';
+  const canSelfInstall = app.isPackaged && !portable && !mac;
   let busy = false;
 
   async function installWithUpdater() {
@@ -78,7 +81,8 @@ function createInstaller({ app, shell, log, onProgress }) {
   }
 
   async function downloadToFolder(release) {
-    const wanted = portable ? /^TopNotch-[\d.]+\.exe$/ : /^TopNotch-Setup-[\d.]+\.exe$/;
+    const wanted = mac ? new RegExp(`^TopNotch-[\\d.]+-${process.arch}\\.dmg$`)
+      : portable ? /^TopNotch-[\d.]+\.exe$/ : /^TopNotch-Setup-[\d.]+\.exe$/;
     const asset = release.assets.find((a) => wanted.test(a.name));
     if (!asset) throw new Error('no matching download in the release');
     const target = path.join(app.getPath('downloads'), asset.name);
@@ -98,7 +102,7 @@ function createInstaller({ app, shell, log, onProgress }) {
     }
     await new Promise((resolve, reject) => out.end((e) => (e ? reject(e) : resolve())));
     fs.renameSync(partial, target);
-    shell.showItemInFolder(target);
+    if (mac) shell.openPath(target); else shell.showItemInFolder(target);
     return { status: 'downloaded', path: target, version: String(release.tag_name).replace(/^v/i, '') };
   }
 

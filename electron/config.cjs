@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const { BG_MODELS } = require('./bgremove.cjs');
 
 const DEFAULTS = {
   displayId: null,        // null = primary display
@@ -24,6 +25,8 @@ const DEFAULTS = {
   clockColor: 'white',    // white | accent
   weatherShow: 'icon-temp', // icon-temp | temp | detailed
   weatherColor: 'white',  // white | accent | weather
+  bgModel: 'isnet',       // background removal model, see bgremove.cjs
+  aiDevice: 'cpu',        // cpu | gpu (DirectML, falls back to CPU)
   features: {
     lyrics: true,
     pillLyrics: true,
@@ -80,6 +83,8 @@ function sanitizePatch(patch) {
   if (oneOf(patch.clockColor, ['white', 'accent'])) out.clockColor = patch.clockColor;
   if (oneOf(patch.weatherShow, ['icon-temp', 'temp', 'detailed'])) out.weatherShow = patch.weatherShow;
   if (oneOf(patch.weatherColor, ['white', 'accent', 'weather'])) out.weatherColor = patch.weatherColor;
+  if (oneOf(patch.bgModel, BG_MODELS)) out.bgModel = patch.bgModel;
+  if (oneOf(patch.aiDevice, ['cpu', 'gpu'])) out.aiDevice = patch.aiDevice;
   if (oneOf(patch.dockEdge, ['top', 'bottom', 'left', 'right'])) out.dockEdge = patch.dockEdge;
   if (Number.isFinite(patch.dockOffset)) out.dockOffset = Math.max(0, Math.min(1, patch.dockOffset));
   for (const key of ['launchAtLogin', 'expandOnHover', 'keepOpen', 'hideBehindMaximized', 'clockSeconds', 'lockPosition']) {

@@ -29,6 +29,9 @@ const ROTATE_L = <Icon d={<><path d="M3 12a9 9 0 1 0 3-6.7" /><path d="M3 4v5h5"
 const ROTATE_R = <Icon d={<><path d="M21 12a9 9 0 1 1-3-6.7" /><path d="M21 4v5h-5" /></>} />;
 const FLIP_H = <Icon d={<><path d="M12 3v18" /><path d="M8 7L3 12l5 5z" /><path d="M16 7l5 5-5 5z" /></>} />;
 const FLIP_V = <Icon d={<><path d="M3 12h18" /><path d="M7 8l5-5 5 5z" /><path d="M7 16l5 5 5-5z" /></>} />;
+const SPARKLE = <Icon d={<><path d="M12 3l1.6 3.9L17.5 8.5l-3.9 1.6L12 14l-1.6-3.9L6.5 8.5l3.9-1.6z" /><path d="M5 15l.8 1.9 1.9.8-1.9.8L5 20.4l-.8-1.9-1.9-.8 1.9-.8zM18 14l.6 1.4 1.4.6-1.4.6-.6 1.4-.6-1.4-1.4-.6 1.4-.6z" /></>} />;
+// Formats that can't hold transparency (saved over white).
+const OPAQUE = ['jpg', 'bmp'];
 const LOCK = (on) => <Icon d={on ? <><rect x="5" y="11" width="14" height="10" rx="2" /><path d="M8 11V7a4 4 0 0 1 8 0v4" /></> : <><rect x="5" y="11" width="14" height="10" rx="2" /><path d="M8 11V7a4 4 0 0 1 7.5-2" /></>} />;
 
 // Draws the source rotated (quarter turns) and flipped into a new canvas.
@@ -69,6 +72,9 @@ export default function Editor() {
   const [lockSize, setLockSize] = useState(true);
   const [format, setFormat] = useState('png');
   const [status, setStatus] = useState(null); // { kind: 'saving'|'done'|'error', text, output? }
+  // Remove background: 'idle' | 'working' | 'done' | { needs } | { downloading } | { error }
+  const [bg, setBg] = useState('idle');
+  const original = useRef(null);
   const canvasRef = useRef(null);
   const frameRef = useRef(null);
   const [view, setView] = useState({ w: 0, h: 0 });
@@ -80,6 +86,8 @@ export default function Editor() {
     setRotation(0); setFlipX(false); setFlipY(false); setCrop(FULL); setRatio('free');
     setAdjust({ brightness: 0, contrast: 0, saturation: 0 }); setSize(null); setStatus(null);
     setCropping(next.mode === 'crop');
+    setBg('idle');
+    original.current = null;
     setFormat(next.targets?.includes(next.ext) ? next.ext : 'png');
     if (next.image) {
       const image = new Image();
@@ -88,6 +96,36 @@ export default function Editor() {
     }
   }, []);
   useEffect(() => { load(); return bridge.onEditorOpen(load); }, [load]);
+  useEffect(() => bridge.onEditorProgress((progress) => setBg((b) => (b && b.downloading !== undefined ? { downloading: progress } : b))), []);
+
+  // The cut-out replaces the picture; crop, rotation and adjustments stay
+  // and apply on top of it. Restore brings the original back.
+  const swapImage = (src) => new Promise((resolve) => {
+    const image = new Image();
+    image.onload = () => { setImg(image); resolve(); };
+    image.src = src;
+  });
+  const removeBackground = async () => {
+    setBg('working');
+    const result = await bridge.removeBackgroundInEditor();
+    if (result?.needs) { setBg({ needs: result.needs, size: result.size }); return; }
+    if (!result?.image) { setBg({ error: result?.error || 'Could not remove the background' }); return; }
+    if (!original.current) original.current = img;
+    await swapImage(result.image);
+    setBg('done');
+    if (OPAQUE.includes(format)) setFormat('png');
+  };
+  const downloadModel = async () => {
+    setBg({ downloading: 0 });
+    const result = await bridge.downloadBackgroundModel();
+    if (result?.ok) removeBackground();
+    else setBg({ error: result?.error || 'Download failed' });
+  };
+  const restoreBackground = () => {
+    if (original.current) setImg(original.current);
+    original.current = null;
+    setBg('idle');
+  };
 
   const oriented = useMemo(() => (img ? orient(img, rotation, flipX, flipY) : null), [img, rotation, flipX, flipY]);
   const cropPx = oriented ? { w: Math.max(1, Math.round(crop.w * oriented.width)), h: Math.max(1, Math.round(crop.h * oriented.height)) } : { w: 0, h: 0 };
@@ -183,6 +221,7 @@ export default function Editor() {
 
   const turn = (deg) => { setRotation((r) => r + deg); setCrop(FULL); setSize(null); };
   const reset = () => {
+    restoreBackground();
     setRotation(0); setFlipX(false); setFlipY(false); setCrop(FULL); setRatio('free'); setSize(null);
     setAdjust({ brightness: 0, contrast: 0, saturation: 0 });
   };
@@ -214,7 +253,7 @@ export default function Editor() {
   };
 
   const handles = ['nw', 'ne', 'sw', 'se'];
-  const edited = rotation % 360 !== 0 || flipX || flipY || crop !== FULL || size || adjust.brightness || adjust.contrast || adjust.saturation;
+  const edited = bg === 'done' || rotation % 360 !== 0 || flipX || flipY || crop !== FULL || size || adjust.brightness || adjust.contrast || adjust.saturation;
 
   return (
     <div className="editor">
@@ -275,6 +314,28 @@ export default function Editor() {
               <button className={`ed-tool${flipX ? ' is-on' : ''}`} title="Flip horizontal" onClick={() => { setFlipX((f) => !f); setCrop(FULL); }}>{FLIP_H}</button>
               <button className={`ed-tool${flipY ? ' is-on' : ''}`} title="Flip vertical" onClick={() => { setFlipY((f) => !f); setCrop(FULL); }}>{FLIP_V}</button>
             </div>
+          </section>
+
+          <section>
+            <div className="ed-head"><span>Background</span>{bg === 'done' && <button className="ed-link" onClick={restoreBackground}>Restore</button>}</div>
+            {bg && bg.needs ? (
+              <div className="ed-bg-prompt">
+                <span>Needs the AI model ({bg.size}), downloaded once.</span>
+                <button className="ed-button" onClick={downloadModel}>Download</button>
+              </div>
+            ) : bg && bg.downloading !== undefined ? (
+              <div className="ed-bg-prompt">
+                <span>Downloading model · {Math.round(bg.downloading * 100)}%</span>
+                <div className="ed-progress"><span style={{ width: `${Math.round(bg.downloading * 100)}%` }} /></div>
+              </div>
+            ) : (
+              <button className={`ed-wide${bg === 'done' ? ' is-on' : ''}`} onClick={removeBackground} disabled={!oriented || bg === 'working' || bg === 'done'}>
+                <span className={bg === 'working' ? 'ed-spin' : undefined}>{SPARKLE}</span>
+                {bg === 'working' ? 'Removing background…' : bg === 'done' ? 'Background removed' : 'Remove background'}
+              </button>
+            )}
+            {bg && bg.error && <div className="ed-status is-error"><span>{bg.error}</span></div>}
+            {bg === 'done' && OPAQUE.includes(format) && <p className="ed-note">{format.toUpperCase()} can't keep transparency; it will be saved over white.</p>}
           </section>
 
           <section>

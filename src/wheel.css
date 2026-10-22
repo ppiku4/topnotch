@@ -212,6 +212,29 @@ html.is-editor, html.is-editor body { background: #141416; }
 .ed-status span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ed-link { border: 0; background: none; color: var(--accent); font-size: 12px; cursor: pointer; padding: 0; text-transform: none; letter-spacing: 0; }
 .ed-note { margin: 10px 0 0; font-size: 11px; color: var(--text-dim); }
+.ed-wide {
+  width: 100%;
+  height: 38px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 0;
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--text);
+  font-weight: 600;
+  cursor: pointer;
+}
+.ed-wide:hover:not(:disabled) { background: var(--surface-hover); }
+.ed-wide:disabled { cursor: default; }
+.ed-wide.is-on { color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent); }
+.ed-wide span { display: flex; color: var(--accent); }
+.ed-spin { animation: ed-pulse 1s ease-in-out infinite; }
+@keyframes ed-pulse { 50% { opacity: 0.35; transform: scale(0.85); } }
+.ed-bg-prompt { display: flex; flex-direction: column; gap: 8px; font-size: 12px; color: var(--text-dim); }
+.ed-progress { height: 4px; border-radius: 2px; background: rgba(255, 255, 255, 0.1); overflow: hidden; }
+.ed-progress span { display: block; height: 100%; background: var(--accent); transition: width 0.2s ease; }
 
 /* ── Conversion activity in the notch ─────────────────────────────────── */
 

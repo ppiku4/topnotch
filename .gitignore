@@ -11,3 +11,6 @@ Thumbs.db
 
 # Private notes, not for publishing
 SMART_NOTCH_TEARDOWN.md
+
+# macOS native helper and adapter (scripts/build-mac-native.sh)
+build/mac/

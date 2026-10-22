@@ -3,6 +3,7 @@ const off = () => () => {};
 const log = (name) => (...args) => console.log('[bridge]', name, ...args);
 
 export const bridge = window.topnotch ?? {
+  platform: /Mac/.test(navigator.platform) ? 'darwin' : 'win32',
   setPassthrough: () => {},
   mediaControl: log('media'),
   seek: log('seek'),
@@ -78,5 +79,15 @@ export const bridge = window.topnotch ?? {
   onEditorOpen: off,
   saveEdited: async () => ({ ok: false, error: 'not available in the browser preview' }),
   revealEdited: () => {},
-  closeEditor: () => {}
+  closeEditor: () => {},
+  removeBackgroundInEditor: async () => ({ error: 'not available in the browser preview' }),
+  downloadBackgroundModel: async () => ({ ok: false }),
+  onEditorProgress: off,
+  getAiModels: async () => null,
+  downloadAiModel: async () => ({ ok: false }),
+  deleteAiModel: async () => ({ ok: false }),
+  onAiModels: off
 };
+
+// macOS builds hide Windows-only features and say Option instead of Alt.
+export const IS_MAC = bridge.platform === 'darwin';
