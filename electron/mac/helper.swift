@@ -7,6 +7,7 @@
 // Built in CI with: swiftc -O helper.swift -o topnotch-helper
 
 import AppKit
+import AudioToolbox
 import CoreAudio
 import CoreMediaIO
 import Foundation

@@ -13,7 +13,7 @@ mkdir -p "$OUT"
 
 echo "› Swift helper ($ARCH)"
 swiftc -O -target "$ARCH-apple-macos12.0" \
-  -framework AppKit -framework CoreAudio -framework CoreMediaIO -framework IOBluetooth -framework IOKit \
+  -framework AppKit -framework AudioToolbox -framework CoreAudio -framework CoreMediaIO -framework IOBluetooth -framework IOKit \
   "$ROOT/electron/mac/helper.swift" -o "$OUT/topnotch-helper"
 
 echo "› mediaremote-adapter $ADAPTER_TAG"
