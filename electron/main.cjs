@@ -443,7 +443,9 @@ function onHelperEvent(msg) {
   } else if (msg.type === 'mixer') {
     publishMixer(msg.sessions);
   } else if (msg.type === 'net') {
-    lastNet = { rx: msg.rx, tx: msg.tx, gpu: msg.gpu, cpuTemp: msg.cpuTemp, memUsed: msg.memUsed };
+    lastNet = { rx: msg.rx, tx: msg.tx, gpu: msg.gpu, cpuTemp: msg.cpuTemp, gpuTemp: msg.gpuTemp, memUsed: msg.memUsed };
+  } else if (msg.type === 'file-drag') {
+    fileDragActive = !!msg.active;
   } else if (msg.type === 'bluetooth') {
     const previous = bluetoothDevices;
     bluetoothDevices = msg.devices;
@@ -539,7 +541,7 @@ function setStatsVisible(on) {
         tx: lastNet.tx,
         cpuTemp: lhmCpuTemp ?? (lastNet.cpuTemp >= 0 ? lastNet.cpuTemp : null),
         gpu: nvidia ? nvidia.usage : lastNet.gpu >= 0 ? lastNet.gpu : null,
-        gpuTemp: nvidia && Number.isFinite(nvidia.temp) ? nvidia.temp : null,
+        gpuTemp: nvidia && Number.isFinite(nvidia.temp) ? nvidia.temp : lastNet.gpuTemp >= 0 ? lastNet.gpuTemp : null,
         gpuName: nvidia?.name || null
       });
     }, 1000);
@@ -677,13 +679,17 @@ function stopCoverWatch() {
 // A click-through window can't receive drops, so watch for a mouse drag that
 // started elsewhere and reaches the notch's edge, then start catching.
 
+// macOS: the helper reports file drags from the system drag pasteboard.
+let fileDragActive = false;
+
 function startDragWatch() {
   let wasDown = false;
   let startedOutside = false;
   let active = false;
   setInterval(() => {
     if (!notchWindow || notchWindow.isDestroyed() || !features().shelf) return;
-    const down = isLeftButtonDown();
+    // Windows: any drag with the left button; macOS: only file drags.
+    const down = MAC ? fileDragActive : isLeftButtonDown();
     const cursor = screen.getCursorScreenPoint();
     if (dockDragging) return;
     const b = notchWindow.getBounds();
@@ -698,7 +704,9 @@ function startDragWatch() {
     if (down && startedOutside && inZone && !active) {
       active = true;
       notchWindow.setIgnoreMouseEvents(false);
+      if (MAC) notchWindow.moveTop();
       send('drag-near', true);
+      log('shelf: file drag reached the notch');
     } else if (!down && active) {
       active = false;
       send('drag-near', false);
@@ -795,6 +803,7 @@ ipcMain.on('shelf-drag', (event, paths) => {
   if (!files.length) return;
   const iconUrl = shelf.icon(files[0]);
   const icon = iconUrl ? nativeImage.createFromDataURL(iconUrl) : nativeImage.createFromPath(path.join(ASSETS, 'tray.png'));
+  log(`shelf: dragging ${files.length} file(s) out`);
   event.sender.startDrag({ files, file: files[0], icon });
 });
 

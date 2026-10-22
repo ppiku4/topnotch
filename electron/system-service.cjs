@@ -59,7 +59,7 @@ function createSystemService({ onLevels, onEvent = () => {}, log = console.log }
       levels.brightness = msg.supported ? msg.value : null;
       levels.brightnessSupported = msg.supported;
       onLevels({ ...levels }, changed ? 'brightness' : null);
-    } else if (msg.type === 'privacy' || msg.type === 'net' || msg.type === 'bluetooth' || msg.type === 'timeline' || msg.type === 'mixer' || msg.type === 'peak' || msg.type === 'file-click') {
+    } else if (msg.type === 'privacy' || msg.type === 'net' || msg.type === 'bluetooth' || msg.type === 'timeline' || msg.type === 'mixer' || msg.type === 'peak' || msg.type === 'file-click' || msg.type === 'file-drag') {
       onEvent(msg);
     }
   }

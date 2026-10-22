@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
 import { bridge } from './bridge.js';
 import { PRESS, RISE, STAGGER } from './motion.js';
@@ -71,7 +71,46 @@ export const lyricsFor = (media, lyrics, enabled) =>
 
 // ── Shelf ───────────────────────────────────────────────────────────────
 
+// Files parked on the notch. Drop any number in; select several (click,
+// Ctrl/⌘+click, Shift+click) and drag them out together, or grab them all
+// with the stack handle.
 export function ShelfTab({ items, dragging }) {
+  const [selected, setSelected] = useState(() => new Set());
+  const anchor = useRef(null);
+  const paths = items.map((i) => i.path);
+
+  // Forget selections for files that left the shelf.
+  useEffect(() => {
+    setSelected((current) => {
+      const next = new Set([...current].filter((p) => paths.includes(p)));
+      return next.size === current.size ? current : next;
+    });
+  }, [paths.join('|')]);
+
+  const select = (e, path) => {
+    const index = paths.indexOf(path);
+    setSelected((current) => {
+      if (e.shiftKey && anchor.current != null) {
+        const from = paths.indexOf(anchor.current);
+        const [a, b] = from < index ? [from, index] : [index, from];
+        return new Set(paths.slice(a, b + 1));
+      }
+      anchor.current = path;
+      if (e.ctrlKey || e.metaKey) {
+        const next = new Set(current);
+        if (next.has(path)) next.delete(path); else next.add(path);
+        return next;
+      }
+      return current.size === 1 && current.has(path) ? new Set() : new Set([path]);
+    });
+  };
+  // Dragging a selected file takes the whole selection, in shelf order.
+  const dragOut = (e, path) => {
+    e.preventDefault();
+    bridge.dragFromShelf(selected.has(path) ? paths.filter((p) => selected.has(p)) : [path]);
+  };
+  const allSelected = items.length > 0 && selected.size === items.length;
+
   return (
     <div className={`tab tab-shelf${dragging ? ' is-dropping' : ''}`}>
       {items.length === 0 ? (
@@ -79,23 +118,37 @@ export function ShelfTab({ items, dragging }) {
       ) : (
         <>
           <div className="tab-header">
-            <span>{items.length} file{items.length === 1 ? '' : 's'}</span>
-            <button className="text-button" onClick={() => bridge.clearShelf()}>Clear</button>
+            <span
+              className="shelf-stack"
+              draggable
+              title={`Drag all ${items.length} file${items.length === 1 ? '' : 's'}`}
+              onDragStart={(e) => { e.preventDefault(); bridge.dragFromShelf(paths); }}
+            >
+              <TrayIcon />{items.length}
+            </span>
+            <span className="shelf-count">{selected.size ? `${selected.size} selected` : `file${items.length === 1 ? '' : 's'}`}</span>
+            <span className="tab-spacer" />
+            <button className="text-button" onClick={() => setSelected(allSelected ? new Set() : new Set(paths))}>{allSelected ? 'Select none' : 'Select all'}</button>
+            {selected.size > 0
+              ? <button className="text-button" onClick={() => { selected.forEach((p) => bridge.removeFromShelf(p)); setSelected(new Set()); }}>Remove</button>
+              : <button className="text-button" onClick={() => bridge.clearShelf()}>Clear</button>}
           </div>
-          <motion.div className="shelf-grid" variants={STAGGER} initial="initial" animate="animate">
+          <motion.div className="shelf-grid" variants={STAGGER} initial="initial" animate="animate" onClick={(e) => { if (e.target === e.currentTarget) setSelected(new Set()); }}>
             {items.map((item) => (
               <motion.div
                 variants={RISE}
                 layout
                 key={item.path}
-                className="shelf-item"
+                className={`shelf-item${selected.has(item.path) ? ' is-selected' : ''}`}
                 title={item.path}
                 draggable
-                onDragStart={(e) => { e.preventDefault(); bridge.dragFromShelf([item.path]); }}
+                onClick={(e) => select(e, item.path)}
+                onDragStart={(e) => dragOut(e, item.path)}
               >
+                {selected.has(item.path) && selected.size > 1 && <span className="shelf-badge">{paths.filter((p) => selected.has(p)).indexOf(item.path) + 1}</span>}
                 {item.icon ? <img src={item.icon} alt="" draggable={false} /> : <TrayIcon />}
                 <span>{item.name}</span>
-                <button className="shelf-remove" aria-label="Remove" onClick={() => bridge.removeFromShelf(item.path)}><CloseIcon /></button>
+                <button className="shelf-remove" aria-label="Remove" onClick={(e) => { e.stopPropagation(); bridge.removeFromShelf(item.path); }}><CloseIcon /></button>
               </motion.div>
             ))}
           </motion.div>

@@ -278,7 +278,11 @@ enum Stats {
         timer = nil
         previous = nil
         guard on else { return }
-        timer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { _ in tick() }
+        timer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { _ in
+            Temperatures.read()
+            tick()
+        }
+        Temperatures.read()
         tick()
     }
 
@@ -290,11 +294,97 @@ enum Stats {
                 "rx": now.rx >= before.rx ? now.rx - before.rx : 0,
                 "tx": now.tx >= before.tx ? now.tx - before.tx : 0,
                 "gpu": gpuUsage(),
-                "cpuTemp": -1,
+                "cpuTemp": Temperatures.cpu ?? -1,
+                "gpuTemp": Temperatures.gpu ?? -1,
                 "memUsed": memoryUsed()
             ])
         }
         previous = now
+    }
+}
+
+// ── CPU and GPU temperature (Apple Silicon) ────────────────────────────────
+// The SoC's thermal sensors are HID services (usage page 0xff00, usage 5)
+// readable without admin rights through the IOHIDEventSystemClient SPI, the
+// same source as Stats and other menu-bar monitors. Sensor names:
+// "pACC/eACC MTR Temp Sensor…" and "PMU tdie…" are CPU, "GPU MTR…" is GPU.
+
+@_silgen_name("IOHIDEventSystemClientCreate")
+func hidClientCreate(_ allocator: CFAllocator?) -> OpaquePointer?
+@_silgen_name("IOHIDEventSystemClientSetMatching")
+func hidClientSetMatching(_ client: OpaquePointer, _ matching: CFDictionary) -> Int32
+@_silgen_name("IOHIDEventSystemClientCopyServices")
+func hidClientCopyServices(_ client: OpaquePointer) -> Unmanaged<CFArray>?
+@_silgen_name("IOHIDServiceClientCopyProperty")
+func hidServiceCopyProperty(_ service: OpaquePointer, _ key: CFString) -> Unmanaged<CFTypeRef>?
+@_silgen_name("IOHIDServiceClientCopyEvent")
+func hidServiceCopyEvent(_ service: OpaquePointer, _ type: Int64, _ options: Int32, _ timestamp: Int64) -> OpaquePointer?
+@_silgen_name("IOHIDEventGetFloatValue")
+func hidEventGetFloatValue(_ event: OpaquePointer, _ field: Int32) -> Double
+
+enum Temperatures {
+    static let typeTemperature: Int64 = 15
+    static var client: OpaquePointer?
+    static var cpu: Int?
+    static var gpu: Int?
+
+    static func read() {
+        if client == nil {
+            client = hidClientCreate(kCFAllocatorDefault)
+            if let client = client {
+                _ = hidClientSetMatching(client, ["PrimaryUsagePage": 0xff00, "PrimaryUsage": 5] as CFDictionary)
+            }
+        }
+        guard let client = client, let services = hidClientCopyServices(client)?.takeRetainedValue() as? [AnyObject] else { return }
+        var cpuMax: Double?, gpuMax: Double?
+        for object in services {
+            let service = OpaquePointer(Unmanaged.passUnretained(object).toOpaque())
+            guard let name = hidServiceCopyProperty(service, "Product" as CFString)?.takeRetainedValue() as? String,
+                  let event = hidServiceCopyEvent(service, typeTemperature, 0, 0) else { continue }
+            let value = hidEventGetFloatValue(event, Int32(typeTemperature << 16))
+            Unmanaged<AnyObject>.fromOpaque(UnsafeRawPointer(event)).release()
+            guard value > 5, value < 130 else { continue }
+            if name.contains("ACC") || name.contains("tdie") || name.hasPrefix("CPU") {
+                cpuMax = max(cpuMax ?? value, value)
+            } else if name.hasPrefix("GPU") {
+                gpuMax = max(gpuMax ?? value, value)
+            }
+        }
+        cpu = cpuMax.map { Int($0.rounded()) }
+        gpu = gpuMax.map { Int($0.rounded()) }
+    }
+}
+
+// ── File drags (for the shelf) ─────────────────────────────────────────────
+// A file drag from Finder or anywhere else writes file URLs to the drag
+// pasteboard. Watching its change count while the button is down tells the
+// app a file drag is in progress, more reliably than mouse state alone.
+
+enum FileDrag {
+    static var lastChange = NSPasteboard(name: .drag).changeCount
+    static var active = false
+
+    static func start() {
+        Timer.scheduledTimer(withTimeInterval: 0.08, repeats: true) { _ in poll() }
+    }
+
+    static func poll() {
+        let down = NSEvent.pressedMouseButtons & 1 != 0
+        let board = NSPasteboard(name: .drag)
+        if down && !active && board.changeCount != lastChange {
+            lastChange = board.changeCount
+            let files = board.types?.contains(.fileURL) ?? false
+            if files {
+                active = true
+                emit(["type": "file-drag", "active": true])
+            }
+        } else if !down && active {
+            active = false
+            lastChange = board.changeCount
+            emit(["type": "file-drag", "active": false])
+        } else if !down {
+            lastChange = board.changeCount
+        }
     }
 }
 
@@ -417,6 +507,7 @@ Volume.start()
 Brightness.start()
 Privacy.start()
 Bluetooth.start()
+FileDrag.start()
 
 // stdin on a background thread; commands run on the main thread. When the
 // app closes the pipe, the helper exits.

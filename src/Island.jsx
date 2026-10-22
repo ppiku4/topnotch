@@ -224,7 +224,7 @@ export default function Island() {
   const dragStart = useRef(null);
   const onPointerDown = (e) => {
     if (e.button !== 0 || config.lockPosition) return;
-    if (e.target.closest('button, a, input, select, textarea, .slider, .clip-list, .clip, .shelf-grid, .lyrics-list, .mixer-apps, .media-card-top, .meters-card')) return;
+    if (e.target.closest('button, a, input, select, textarea, .slider, .clip-list, .clip, .shelf-grid, .shelf-stack, .lyrics-list, .mixer-apps, .media-card-top, .meters-card')) return;
     dragStart.current = { x: e.screenX, y: e.screenY };
   };
   const onPointerMove = (e) => {
