@@ -1,7 +1,7 @@
 {
   "name": "topnotch",
   "productName": "TopNotch",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "A Dynamic Island for Windows: media, synced lyrics, system stats and quick controls in a notch at the top of your screen.",
   "license": "MIT",
   "author": "TopNotch contributors",
