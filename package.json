@@ -130,7 +130,7 @@
       ],
       "icon": "assets/icon-mac.png",
       "category": "public.app-category.utilities",
-      "identity": "-",
+      "identity": null,
       "hardenedRuntime": false,
       "gatekeeperAssess": false,
       "artifactName": "TopNotch-${version}-${arch}.${ext}",
@@ -159,6 +159,7 @@
     },
     "dmg": {
       "title": "TopNotch ${version}"
-    }
+    },
+    "afterPack": "scripts/after-pack.cjs"
   }
 }
