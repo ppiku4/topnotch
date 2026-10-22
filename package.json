@@ -128,7 +128,7 @@
           ]
         }
       ],
-      "icon": "assets/icon.png",
+      "icon": "assets/icon-mac.png",
       "category": "public.app-category.utilities",
       "identity": "-",
       "hardenedRuntime": false,
