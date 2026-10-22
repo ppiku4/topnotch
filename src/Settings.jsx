@@ -335,6 +335,12 @@ function Appearance({ config }) {
       <Row icon={GlowIcon} title="Edge glow" sub="A soft accent-coloured halo around the notch while music plays.">
         <Segmented id="glow" value={config.edgeGlow || 'subtle'} onChange={(v) => set({ edgeGlow: v })} options={[['off', 'Off'], ['subtle', 'Subtle'], ['strong', 'Strong']]} />
       </Row>
+      <Row icon={PulseIcon} title="Beat sensitivity" sub="How strongly the glow and the Music tab's colours react to the music.">
+        <div className="range-with-value">
+          <input type="range" min="0" max="1" step="0.05" aria-label="Beat sensitivity" value={config.glowSensitivity ?? 0.5} onChange={(e) => set({ glowSensitivity: Number(e.target.value) })} />
+          <span>{Math.round((config.glowSensitivity ?? 0.5) * 100)}%</span>
+        </div>
+      </Row>
       <Row icon={SquareIcon} title="Corners" sub={config.material === 'glass' ? "Dark glass uses the system's own window corners." : undefined} disabled={config.material === 'glass'}>
         <Segmented id="corners" value={config.corners || 'rounded'} onChange={(v) => set({ corners: v })} options={[['rounded', 'Rounded'], ['squared', 'Squared']]} />
       </Row>

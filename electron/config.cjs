@@ -16,6 +16,7 @@ const DEFAULTS = {
   temperatureUnit: 'c',
   accent: 'album',        // 'album' or a #rrggbb swatch
   edgeGlow: 'subtle',     // off | subtle | strong
+  glowSensitivity: 0.5,   // 0..1, how strongly the glow reacts to the music
   corners: 'rounded',     // rounded | squared
   material: 'solid',      // solid | glass
   clockFormat: 'system',  // system | 12h | 24h
@@ -95,6 +96,7 @@ function sanitizePatch(patch) {
   if (oneOf(patch.temperatureUnit, ['c', 'f'])) out.temperatureUnit = patch.temperatureUnit;
   if (patch.accent === 'album' || ACCENT_SWATCHES.includes(patch.accent)) out.accent = patch.accent;
   if (oneOf(patch.edgeGlow, ['off', 'subtle', 'strong'])) out.edgeGlow = patch.edgeGlow;
+  if (Number.isFinite(patch.glowSensitivity)) out.glowSensitivity = Math.max(0, Math.min(1, patch.glowSensitivity));
   if (oneOf(patch.corners, ['rounded', 'squared'])) out.corners = patch.corners;
   if (oneOf(patch.material, ['solid', 'glass'])) out.material = patch.material;
   if (patch.features && typeof patch.features === 'object') {

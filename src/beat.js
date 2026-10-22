@@ -15,19 +15,31 @@ import { bridge } from './bridge.js';
 // Where no level arrives (macOS has no system meter yet), a slow breathe
 // stands in so things still feel alive without pretending to be on the beat.
 
-// Adaptive onset detector over raw peaks (0..1). Exported for tests.
+// Sensitivity (0..1, 0.5 = default) from settings: higher catches softer
+// beats and pulses harder.
+let sensitivity = 0.5;
+export function setBeatSensitivity(value) {
+  if (Number.isFinite(value)) sensitivity = Math.max(0, Math.min(1, value));
+}
+// Threshold scale: 1 at the default, 1.5x stricter at 0, half at 1.
+const thresholdScale = (s) => 1.5 - s;
+// Output gain: 1 at the default, 0.2 at 0, 1.8 at 1.
+const outputGain = (s) => 0.2 + 1.6 * s;
+
+// Adaptive onset detector over raw peaks (0..1). Exported for tests; the
+// optional third argument overrides the sensitivity.
 export function createBeatDetector() {
   let mean = 0;       // ~1 s running average of the peak
   let spread = 0.05;  // ~1 s running mean absolute deviation
   let previous = 0;
   let lastOnset = -1e9;
-  return function push(v, now) {
+  return function push(v, now, s = sensitivity) {
     const x = Math.max(0, Math.min(1, v));
     const rise = x - previous;
     previous = x;
     const above = x - mean;
     // Quiet passages (and silence) never count as beats.
-    const threshold = Math.max(0.03, spread * 1.3);
+    const threshold = Math.max(0.03, spread * 1.3) * thresholdScale(s);
     let onset = 0;
     if (x > 0.02 && above > threshold && rise > threshold * 0.35 && now - lastOnset > 200) {
       lastOnset = now;
@@ -117,8 +129,9 @@ export function useBeatVars(ref, active) {
     let frame = 0;
     const tick = (now) => {
       const b = stepBeat(now);
-      el.style.setProperty('--beat', b.toFixed(3));
-      el.style.setProperty('--level', (metered() ? level : b * 0.6).toFixed(3));
+      const gain = outputGain(sensitivity);
+      el.style.setProperty('--beat', Math.min(1, b * gain).toFixed(3));
+      el.style.setProperty('--level', Math.min(1, (metered() ? level : b * 0.6) * gain).toFixed(3));
       frame = requestAnimationFrame(tick);
     };
     frame = requestAnimationFrame(tick);
