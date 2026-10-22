@@ -270,10 +270,11 @@ button.card:hover, .meters-card:hover { background: rgba(255, 255, 255, 0.075); 
 
 /* ── Docking: flat side against the screen edge ───────────────────────── */
 
-.island.edge-top { border-top-left-radius: 0 !important; border-top-right-radius: 0 !important; }
-.island.edge-bottom { border-bottom-left-radius: 0 !important; border-bottom-right-radius: 0 !important; box-shadow: 0 -10px 30px rgba(0, 0, 0, 0.35); }
-.island.edge-left { border-top-left-radius: 0 !important; border-bottom-left-radius: 0 !important; box-shadow: 10px 0 30px rgba(0, 0, 0, 0.35); }
-.island.edge-right { border-top-right-radius: 0 !important; border-bottom-right-radius: 0 !important; box-shadow: -10px 0 30px rgba(0, 0, 0, 0.35); }
+/* A floating glass island (taskbar beyond the edge) stays rounded all round. */
+.island.edge-top:not(.is-floating) { border-top-left-radius: 0 !important; border-top-right-radius: 0 !important; }
+.island.edge-bottom:not(.is-floating) { border-bottom-left-radius: 0 !important; border-bottom-right-radius: 0 !important; box-shadow: 0 -10px 30px rgba(0, 0, 0, 0.35); }
+.island.edge-left:not(.is-floating) { border-top-left-radius: 0 !important; border-bottom-left-radius: 0 !important; box-shadow: 10px 0 30px rgba(0, 0, 0, 0.35); }
+.island.edge-right:not(.is-floating) { border-top-right-radius: 0 !important; border-bottom-right-radius: 0 !important; box-shadow: -10px 0 30px rgba(0, 0, 0, 0.35); }
 
 .island.is-draggable:not(:has(.panel)) { cursor: grab; }
 .island.is-draggable .panel { cursor: grab; }

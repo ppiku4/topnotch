@@ -8,7 +8,7 @@ import { CONTENT, PRESS, SPRING_ISLAND, SPRING_SNAPPY, tabMotion } from './motio
 import { Artwork, Bars, ClipboardTab, ShelfTab, StatsTab, TimerTab } from './Tabs.jsx';
 import { BluetoothTab, DashboardTab, MixerTab, MusicTab } from './Dashboard.jsx';
 import { useHoverPassthrough } from './useHoverPassthrough.js';
-import { useBeatVars } from './beat.js';
+import { setBeatSensitivity, useBeatVars } from './beat.js';
 import { useMedia } from './useMedia.js';
 import {
   formatCountdown, playChime, useActivities, useArtColors, useClock, useBattery, useBatteryEvents, useBluetoothDevices, useClipboard,
@@ -77,7 +77,12 @@ export default function Island() {
   const { hovered, hold, open, close, handlers } = useHoverPassthrough({ pinned, expandOnHover: config.expandOnHover !== false });
   const [covered, setCovered] = useState(false);
   useEffect(() => bridge.onCovered(setCovered), []);
-  useEffect(() => bridge.onGlassShapeRequest(() => reportShapeRef.current?.()), []);
+  // Smallest backdrop window Windows allows (DIP); sent when glass turns on.
+  const [glassMin, setGlassMin] = useState({ width: 32, height: 39 });
+  useEffect(() => bridge.onGlassShapeRequest((min) => {
+    if (min && Number.isFinite(min.width) && Number.isFinite(min.height)) setGlassMin(min);
+    reportShapeRef.current?.();
+  }), []);
   useEffect(() => { const t = setTimeout(() => reportShapeRef.current?.(), 120); return () => clearTimeout(t); });
   const reportShapeRef = useRef(null);
   const [pillTextWidth, setPillTextWidth] = useState(300);
@@ -211,7 +216,8 @@ export default function Island() {
   const size = vertical ? (state === 'compact' ? 'vCompact' : state === 'info' ? 'vInfo' : 'vIdle')
     : state === 'compact' && pillLyrics ? 'lyrics' : compactInfo ? 'compactInfo' : state;
   const squared = config.corners === 'squared';
-  const target = {
+  const floatGlass = glass && !!dock.floating;
+  const shape = {
     ...SIZES[size],
     ...(size === 'lyrics' ? { width: Math.round(Math.min(PILL_MAX, Math.max(PILL_MIN, pillTextWidth + PILL_CHROME))) } : null),
     ...(size === 'compactInfo' ? { ...SIZES.compact, width: Math.round(Math.min(PILL_MAX, Math.max(PILL_MIN, infoWidth + PILL_CHROME))), ...(squared ? { borderRadius: SQUARED_RADIUS.compact } : null) } : null),
@@ -228,6 +234,12 @@ export default function Island() {
     x: covered && !panelOpen ? (edge === 'left' ? -12 : edge === 'right' ? 12 : 0) : 0,
     y: covered && !panelOpen ? (edge === 'top' ? -12 : edge === 'bottom' ? 12 : 0) : 0
   };
+  // Dark glass with the taskbar beyond the docked edge: the blur window can't
+  // overhang there unseen, so the island is kept at least as thick as the
+  // smallest window Windows allows (plus the 1 DIP inset on each side).
+  const thick = isVerticalEdge(edge) ? 'width' : 'height';
+  const minThick = Math.ceil(((isVerticalEdge(edge) ? glassMin.width : glassMin.height) + 2) / (config.scale || 1));
+  const target = floatGlass && shape[thick] < minThick ? { ...shape, [thick]: minThick } : shape;
 
   // Place the island's centre at the dock anchor, kept inside the window so
   // it sits flush in the screen corner at either end of an edge.
@@ -292,13 +304,14 @@ export default function Island() {
   // The glow and the Music tab's gradient breathe with the music (beat.js
   // writes --beat on the island each frame).
   useBeatVars(islandRef, !!media?.playing && (glowing || (state === 'panel' && (activeTab === 'music' || activeTab === 'dashboard'))));
+  useEffect(() => setBeatSensitivity(config.glowSensitivity ?? 0.5), [config.glowSensitivity]);
   const style = artColors ? { '--accent': artColors[0], '--accent-2': artColors[1] } : undefined;
 
   return (
     <div className={`stage edge-${edge}${dock.dragging ? ' is-dragging' : ''}`} style={{ zoom: config.scale }}>
       <div className="dock-anchor" style={anchorStyle}>
       <motion.div
-        className={`island edge-${edge}${vertical ? ' is-vertical' : ''}${glowing ? ` is-glowing glow-${edgeGlow}` : ''}${config.material === 'glass' ? ' is-glass' : ''}${squared ? ' is-squared' : ''}${config.lockPosition ? '' : ' is-draggable'}`}
+        className={`island edge-${edge}${vertical ? ' is-vertical' : ''}${glowing ? ` is-glowing glow-${edgeGlow}` : ''}${config.material === 'glass' ? ' is-glass' : ''}${floatGlass ? ' is-floating' : ''}${squared ? ' is-squared' : ''}${config.lockPosition ? '' : ' is-draggable'}`}
         style={style}
         {...handlers}
         onPointerDown={onPointerDown}

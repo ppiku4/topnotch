@@ -142,9 +142,24 @@ function dockLayout(d = dock || dockFromConfig()) {
   return { bounds: { x, y, width, height }, anchor: along - x };
 }
 
+// True when something (usually the taskbar) sits between the docked edge and
+// the screen edge, so the island floats instead of hanging off the bezel.
+function dockFloating(d) {
+  const display = displayFor(d.displayId);
+  const area = edgeArea(display, d.edge);
+  const b = display.bounds;
+  if (d.edge === 'top') return area.y > b.y;
+  if (d.edge === 'bottom') return area.y + area.height < b.y + b.height;
+  if (d.edge === 'left') return area.x > b.x;
+  return area.x + area.width < b.x + b.width;
+}
+
+function dockState(d = dock || dockFromConfig()) {
+  return { edge: d.edge, anchor: dockLayout(d).anchor, dragging: dockDragging, floating: dockFloating(d) };
+}
+
 function sendDock() {
-  const d = dock || dockFromConfig();
-  send('dock', { edge: d.edge, anchor: dockLayout(d).anchor, dragging: dockDragging });
+  send('dock', dockState());
 }
 
 // Older call sites: the bounds the window should have right now.
@@ -629,10 +644,10 @@ let backdrop = null;
 const BACKDROP_TINT = 0x99121214;           // 0xAABBGGRR
 const OFFSCREEN = { x: -200, y: -200, width: 10, height: 10 };
 
-// Windows won't make this window smaller than its minimum tracking size
-// (about 50 DIP), so small pills get a backdrop that extends further past
-// the screen edge the island is docked to, keeping its other sides aligned.
-const BACKDROP_MIN_SIZE = 60;
+// Chromium won't make a window smaller than about 32 x 39 DIP; measured when
+// the backdrop is created. A floating island (taskbar beyond its edge) is
+// kept at least this thick in glass mode, since nothing can hide an overhang.
+let backdropMin = { width: 32, height: 39 };
 
 function backdropBoundsFor(rect) {
   const nb = notchWindow.getBounds();
@@ -645,20 +660,33 @@ function backdropBoundsFor(rect) {
   const inset = r > 8.5 ? Math.ceil((r - 8) * 0.3) + 1 : 1;
   const left = nb.x + rect.x, top = nb.y + rect.y;
   const right = left + rect.width, bottom = top + rect.height;
-  const extend = (span) => Math.max(BACKDROP_MIN_SIZE, Math.round(span + 12 - inset));
+  // Docked against the bare screen edge, the backdrop runs past that edge so
+  // its rounded corners on that side (the island's are square there) end up
+  // off screen. Floating, the island is rounded all round and the backdrop
+  // matches it; it only overhangs if the island is still under the minimum.
+  const floating = dockFloating(dock || dockFromConfig());
+  const extend = (span, min) => Math.max(min, Math.round(floating ? span - inset * 2 : span + 12 - inset));
+  if (floating) {
+    const width = Math.max(1, Math.round(rect.width - inset * 2));
+    const height = Math.max(1, Math.round(rect.height - inset * 2));
+    if (edge === 'bottom') return { x: Math.round(left + inset), y: Math.round(top + inset), width, height: extend(rect.height, backdropMin.height) };
+    if (edge === 'top') { const h = extend(rect.height, backdropMin.height); return { x: Math.round(left + inset), y: Math.round(bottom - inset - h), width, height: h }; }
+    if (edge === 'left') { const w = extend(rect.width, backdropMin.width); return { x: Math.round(right - inset - w), y: Math.round(top + inset), width: w, height }; }
+    return { x: Math.round(left + inset), y: Math.round(top + inset), width: extend(rect.width, backdropMin.width), height };
+  }
   if (edge === 'bottom') {
-    const height = extend(rect.height);
+    const height = extend(rect.height, 60);
     return { x: Math.round(left + inset), y: Math.round(top + inset), width: Math.max(1, Math.round(rect.width - inset * 2)), height };
   }
   if (edge === 'left') {
-    const width = extend(rect.width);
+    const width = extend(rect.width, 60);
     return { x: Math.round(right - inset - width), y: Math.round(top + inset), width, height: Math.max(1, Math.round(rect.height - inset * 2)) };
   }
   if (edge === 'right') {
-    const width = extend(rect.width);
+    const width = extend(rect.width, 60);
     return { x: Math.round(left + inset), y: Math.round(top + inset), width, height: Math.max(1, Math.round(rect.height - inset * 2)) };
   }
-  const height = extend(rect.height);
+  const height = extend(rect.height, 60);
   return { x: Math.round(left + inset), y: Math.round(bottom - inset - height), width: Math.max(1, Math.round(rect.width - inset * 2)), height };
 }
 
@@ -678,6 +706,9 @@ function createBackdrop() {
     webPreferences: { sandbox: true, contextIsolation: true }
   });
   backdrop.setIgnoreMouseEvents(true);
+  backdrop.setBounds({ ...OFFSCREEN, width: 1, height: 1 });
+  const smallest = backdrop.getBounds();
+  backdropMin = { width: smallest.width, height: smallest.height };
   backdrop.setAlwaysOnTop(true, 'screen-saver');
   backdrop.loadURL('data:text/html,<body style="margin:0;background:transparent"></body>');
   try {
@@ -695,7 +726,7 @@ function applyGlass(on) {
   glassOn = on;
   if (on) {
     createBackdrop();
-    send('glass-shape-request');
+    send('glass-shape-request', backdropMin);
   } else if (backdrop) {
     notchWindow.setParentWindow(null);
     backdrop.destroy();
@@ -849,8 +880,7 @@ ipcMain.on('set-brightness', (event, value) => {
 ipcMain.on('dock-drag-start', (event) => { if (fromNotch(event)) startDockDrag(); });
 ipcMain.handle('dock-get', (event) => {
   if (!fromOurWindows(event)) return null;
-  const d = dock || dockFromConfig();
-  return { edge: d.edge, anchor: dockLayout(d).anchor, dragging: dockDragging };
+  return dockState();
 });
 ipcMain.on('stats-visible', (event, on) => { if (fromNotch(event)) setStatsVisible(!!on); });
 // The renderer reports the island's rect (CSS px, zoom included) each frame
