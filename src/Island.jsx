@@ -152,6 +152,23 @@ export default function Island() {
     return () => clearTimeout(timer);
   }, [dragNear]);
 
+  // macOS: files released over the island, reported by the native helper in
+  // case the window itself never got the drop.
+  useEffect(() => bridge.onShelfDrop(({ paths, x, y }) => {
+    if (featuresRef.current.shelf && document.elementFromPoint(x, y)?.closest('.island')) bridge.addToShelf(paths);
+  }), []);
+
+  // A drop that misses the island must not navigate the window to the file.
+  useEffect(() => {
+    const block = (e) => e.preventDefault();
+    window.addEventListener('dragover', block);
+    window.addEventListener('drop', block);
+    return () => {
+      window.removeEventListener('dragover', block);
+      window.removeEventListener('drop', block);
+    };
+  }, []);
+
   // While the notch is being dragged to a new edge it stays collapsed.
   // A finished conversion keeps the pill under the pointer so "Show" can be clicked.
   const convertDone = activities.current?.kind === 'convert' && activities.current.data.status === 'done';

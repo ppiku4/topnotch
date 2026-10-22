@@ -3,7 +3,8 @@
 //   in:  volume <0-100> | mute <on|off|toggle> | brightness <0-100>
 //        stats <on|off> | fileclick <on|off> [ext,ext,…] | get
 //        (meter, mixer, timeline and seek are Windows-only and ignored)
-//   out: ready, volume, brightness, privacy, net, bluetooth, file-click, error
+//   out: ready, volume, brightness, privacy, net, bluetooth, file-click,
+//        file-drag, error
 // Built in CI with: swiftc -O helper.swift -o topnotch-helper
 
 import AppKit
@@ -359,10 +360,15 @@ enum Temperatures {
 // A file drag from Finder or anywhere else writes file URLs to the drag
 // pasteboard. Watching its change count while the button is down tells the
 // app a file drag is in progress, more reliably than mouse state alone.
+// When the button comes up the helper also reports the dragged files and
+// where they were released: macOS doesn't always hand a drop to the notch
+// window (it only starts accepting the mouse mid-drag), so the app can park
+// the files itself.
 
 enum FileDrag {
-    static var lastChange = NSPasteboard(name: .drag).changeCount
+    static var baseline = NSPasteboard(name: .drag).changeCount
     static var active = false
+    static let legacyFilenames = NSPasteboard.PasteboardType("NSFilenamesPboardType")
 
     static func start() {
         Timer.scheduledTimer(withTimeInterval: 0.08, repeats: true) { _ in poll() }
@@ -371,20 +377,39 @@ enum FileDrag {
     static func poll() {
         let down = NSEvent.pressedMouseButtons & 1 != 0
         let board = NSPasteboard(name: .drag)
-        if down && !active && board.changeCount != lastChange {
-            lastChange = board.changeCount
-            let files = board.types?.contains(.fileURL) ?? false
-            if files {
-                active = true
-                emit(["type": "file-drag", "active": true])
+        if !down {
+            if active {
+                active = false
+                // Same coordinates as Electron's DIPs: points, origin at the
+                // top-left of the main display.
+                let location = NSEvent.mouseLocation
+                let height = NSScreen.screens.first?.frame.height ?? 0
+                emit([
+                    "type": "file-drag", "active": false,
+                    "x": Int(location.x.rounded()), "y": Int((height - location.y).rounded()),
+                    "files": paths(board)
+                ])
             }
-        } else if !down && active {
-            active = false
-            lastChange = board.changeCount
-            emit(["type": "file-drag", "active": false])
-        } else if !down {
-            lastChange = board.changeCount
+            baseline = board.changeCount
+            return
         }
+        // The source may still be writing when the count changes, so keep
+        // checking the types for as long as the button is held.
+        if !active && board.changeCount != baseline && hasFiles(board) {
+            active = true
+            emit(["type": "file-drag", "active": true])
+        }
+    }
+
+    static func hasFiles(_ board: NSPasteboard) -> Bool {
+        let types = board.types ?? []
+        return types.contains(.fileURL) || types.contains(legacyFilenames)
+    }
+
+    static func paths(_ board: NSPasteboard) -> [String] {
+        let urls = board.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL] ?? []
+        if !urls.isEmpty { return urls.map { $0.path } }
+        return board.propertyList(forType: legacyFilenames) as? [String] ?? []
     }
 }
 
