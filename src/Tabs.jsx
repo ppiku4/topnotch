@@ -181,7 +181,7 @@ export function ClipboardTab({ items }) {
           <motion.div variants={RISE} layout key={item.id} className={`clip${item.pinned ? ' is-pinned' : ''}`} onClick={() => copy(item.id)} title="Click to copy">
             {item.type === 'image'
               ? <span className="clip-image">{item.thumb ? <img src={item.thumb} alt="" /> : <ImageIcon />}<span>{item.text}</span></span>
-              : <span className="clip-text">{item.text}</span>}
+              : <span className="clip-text">{item.text.length > 5000 ? item.text.slice(0, 5000) + '…' : item.text}</span>}
             {copied === item.id && <motion.span className="clip-copied" initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }}>Copied</motion.span>}
             <button className="clip-action" aria-label={item.pinned ? 'Unpin' : 'Pin'} onClick={(e) => { e.stopPropagation(); bridge.pinClip(item.id); }}><PinIcon filled={item.pinned} /></button>
             <button className="clip-action" aria-label="Delete" onClick={(e) => { e.stopPropagation(); bridge.removeClip(item.id); }}><CloseIcon /></button>

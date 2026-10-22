@@ -24,19 +24,19 @@ namespace TopNotch {
 
 [Guid("5CDF2C82-841E-4546-9722-0CF74078229A"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
 interface IAudioEndpointVolume {
-    int RegisterControlChangeNotify(IAudioEndpointVolumeCallback pNotify);
-    int UnregisterControlChangeNotify(IAudioEndpointVolumeCallback pNotify);
-    int GetChannelCount(out uint count);
-    int SetMasterVolumeLevel(float levelDB, ref Guid context);
-    int SetMasterVolumeLevelScalar(float level, ref Guid context);
-    int GetMasterVolumeLevel(out float levelDB);
-    int GetMasterVolumeLevelScalar(out float level);
-    int SetChannelVolumeLevel(uint channel, float levelDB, ref Guid context);
-    int SetChannelVolumeLevelScalar(uint channel, float level, ref Guid context);
-    int GetChannelVolumeLevel(uint channel, out float levelDB);
-    int GetChannelVolumeLevelScalar(uint channel, out float level);
-    int SetMute([MarshalAs(UnmanagedType.Bool)] bool mute, ref Guid context);
-    int GetMute([MarshalAs(UnmanagedType.Bool)] out bool mute);
+    [PreserveSig] int RegisterControlChangeNotify(IAudioEndpointVolumeCallback pNotify);
+    [PreserveSig] int UnregisterControlChangeNotify(IAudioEndpointVolumeCallback pNotify);
+    [PreserveSig] int GetChannelCount(out uint count);
+    [PreserveSig] int SetMasterVolumeLevel(float levelDB, ref Guid context);
+    [PreserveSig] int SetMasterVolumeLevelScalar(float level, ref Guid context);
+    [PreserveSig] int GetMasterVolumeLevel(out float levelDB);
+    [PreserveSig] int GetMasterVolumeLevelScalar(out float level);
+    [PreserveSig] int SetChannelVolumeLevel(uint channel, float levelDB, ref Guid context);
+    [PreserveSig] int SetChannelVolumeLevelScalar(uint channel, float level, ref Guid context);
+    [PreserveSig] int GetChannelVolumeLevel(uint channel, out float levelDB);
+    [PreserveSig] int GetChannelVolumeLevelScalar(uint channel, out float level);
+    [PreserveSig] int SetMute([MarshalAs(UnmanagedType.Bool)] bool mute, ref Guid context);
+    [PreserveSig] int GetMute([MarshalAs(UnmanagedType.Bool)] out bool mute);
 }
 
 [Guid("657804FA-D6AD-4496-8A60-352752AF4F89"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
@@ -46,13 +46,40 @@ interface IAudioEndpointVolumeCallback {
 
 [Guid("D666063F-1587-4E43-81F1-B948E807363F"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
 interface IMMDevice {
-    int Activate(ref Guid iid, int clsCtx, IntPtr activationParams, [MarshalAs(UnmanagedType.IUnknown)] out object iface);
+    [PreserveSig] int Activate(ref Guid iid, int clsCtx, IntPtr activationParams, [MarshalAs(UnmanagedType.IUnknown)] out object iface);
 }
 
 [Guid("A95664D2-9614-4F35-A746-DE8DB63617E6"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
 interface IMMDeviceEnumerator {
-    int EnumAudioEndpoints(int dataFlow, int stateMask, out IntPtr devices);
-    int GetDefaultAudioEndpoint(int dataFlow, int role, out IMMDevice device);
+    [PreserveSig] int EnumAudioEndpoints(int dataFlow, int stateMask, out IntPtr devices);
+    [PreserveSig] int GetDefaultAudioEndpoint(int dataFlow, int role, out IMMDevice device);
+    [PreserveSig] int GetDevice([MarshalAs(UnmanagedType.LPWStr)] string id, out IMMDevice device);
+    [PreserveSig] int RegisterEndpointNotificationCallback(IMMNotificationClient client);
+    [PreserveSig] int UnregisterEndpointNotificationCallback(IMMNotificationClient client);
+}
+
+[StructLayout(LayoutKind.Sequential)]
+struct PropertyKey { public Guid format; public uint id; }
+
+[Guid("7991EEC9-7E89-4D85-8390-6C703CEC60C0"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+interface IMMNotificationClient {
+    [PreserveSig] int OnDeviceStateChanged([MarshalAs(UnmanagedType.LPWStr)] string id, uint state);
+    [PreserveSig] int OnDeviceAdded([MarshalAs(UnmanagedType.LPWStr)] string id);
+    [PreserveSig] int OnDeviceRemoved([MarshalAs(UnmanagedType.LPWStr)] string id);
+    [PreserveSig] int OnDefaultDeviceChanged(int flow, int role, [MarshalAs(UnmanagedType.LPWStr)] string id);
+    [PreserveSig] int OnPropertyValueChanged([MarshalAs(UnmanagedType.LPWStr)] string id, PropertyKey key);
+}
+
+class EndpointNotifications : IMMNotificationClient {
+    public int OnDeviceStateChanged(string id, uint state) { return 0; }
+    public int OnDeviceAdded(string id) { return 0; }
+    public int OnDeviceRemoved(string id) { return 0; }
+    public int OnPropertyValueChanged(string id, PropertyKey key) { return 0; }
+    public int OnDefaultDeviceChanged(int flow, int role, string id) {
+        // MMDevice callbacks must not block or release COM objects.
+        if (flow == 0 && role == 1) { Audio.DeviceChanged(); Meter.DeviceChanged(); }
+        return 0;
+    }
 }
 
 [ComImport, Guid("BCDE0395-E52F-467C-8E3D-C4579291692E")]
@@ -72,38 +99,75 @@ class VolumeCallback : IAudioEndpointVolumeCallback {
 static class Audio {
     static IAudioEndpointVolume endpoint;
     static VolumeCallback callback;
+    static IMMDeviceEnumerator enumerator;
+    static EndpointNotifications notifications;
+    static readonly object sync = new object();
+    static readonly AutoResetEvent changed = new AutoResetEvent(true);
     static Guid context = Guid.NewGuid();
 
+    public static void DeviceChanged() { changed.Set(); }
+
     public static void Init() {
-        var enumerator = (IMMDeviceEnumerator)new MMDeviceEnumerator();
+        enumerator = (IMMDeviceEnumerator)new MMDeviceEnumerator();
+        notifications = new EndpointNotifications();
+        Marshal.ThrowExceptionForHR(enumerator.RegisterEndpointNotificationCallback(notifications));
+        var watcher = new Thread(() => {
+            while (true) {
+                changed.WaitOne();
+                try { lock (sync) { Rebind(); Report(); } }
+                catch (Exception e) { Helper.EmitError("audio endpoint: " + e.Message); }
+            }
+        });
+        watcher.IsBackground = true;
+        watcher.Start();
+    }
+
+    static void Rebind() {
+        if (endpoint != null) {
+            try { endpoint.UnregisterControlChangeNotify(callback); } catch { }
+            Marshal.ReleaseComObject(endpoint);
+            endpoint = null;
+            callback = null;
+        }
         IMMDevice device;
-        Marshal.ThrowExceptionForHR(enumerator.GetDefaultAudioEndpoint(0 /* eRender */, 1 /* eMultimedia */, out device));
-        Guid iid = typeof(IAudioEndpointVolume).GUID;
-        object iface;
-        Marshal.ThrowExceptionForHR(device.Activate(ref iid, 23 /* CLSCTX_ALL */, IntPtr.Zero, out iface));
-        endpoint = (IAudioEndpointVolume)iface;
-        callback = new VolumeCallback();
-        endpoint.RegisterControlChangeNotify(callback);
+        Marshal.ThrowExceptionForHR(enumerator.GetDefaultAudioEndpoint(0, 1, out device));
+        try {
+            Guid iid = typeof(IAudioEndpointVolume).GUID;
+            object iface;
+            Marshal.ThrowExceptionForHR(device.Activate(ref iid, 23, IntPtr.Zero, out iface));
+            endpoint = (IAudioEndpointVolume)iface;
+            callback = new VolumeCallback();
+            Marshal.ThrowExceptionForHR(endpoint.RegisterControlChangeNotify(callback));
+        } finally { Marshal.ReleaseComObject(device); }
     }
 
     public static void Report() {
-        float level; bool muted;
-        endpoint.GetMasterVolumeLevelScalar(out level);
-        endpoint.GetMute(out muted);
-        Helper.EmitVolume(level, muted);
+        lock (sync) {
+            if (endpoint == null) return;
+            float level; bool muted;
+            Marshal.ThrowExceptionForHR(endpoint.GetMasterVolumeLevelScalar(out level));
+            Marshal.ThrowExceptionForHR(endpoint.GetMute(out muted));
+            Helper.EmitVolume(level, muted);
+        }
     }
 
     public static void SetLevel(int percent) {
-        float level = Math.Max(0, Math.Min(100, percent)) / 100f;
-        endpoint.SetMasterVolumeLevelScalar(level, ref context);
-        if (level > 0) endpoint.SetMute(false, ref context);
+        lock (sync) {
+            if (endpoint == null) Rebind();
+            float level = Math.Max(0, Math.Min(100, percent)) / 100f;
+            Marshal.ThrowExceptionForHR(endpoint.SetMasterVolumeLevelScalar(level, ref context));
+            if (level > 0) Marshal.ThrowExceptionForHR(endpoint.SetMute(false, ref context));
+        }
     }
 
     public static void SetMute(string mode) {
-        bool muted;
-        endpoint.GetMute(out muted);
-        bool next = mode == "on" ? true : mode == "off" ? false : !muted;
-        endpoint.SetMute(next, ref context);
+        lock (sync) {
+            if (endpoint == null) Rebind();
+            bool muted;
+            Marshal.ThrowExceptionForHR(endpoint.GetMute(out muted));
+            bool next = mode == "on" ? true : mode == "off" ? false : !muted;
+            Marshal.ThrowExceptionForHR(endpoint.SetMute(next, ref context));
+        }
     }
 }
 
@@ -116,6 +180,11 @@ interface IAudioMeterInformation {
 static class Meter {
     static volatile bool enabled;
     static IAudioMeterInformation meter;
+    static int deviceVersion;
+    public static void DeviceChanged() { Interlocked.Increment(ref deviceVersion); }
+    static void CloseMeter() {
+        if (meter != null) { Marshal.ReleaseComObject(meter); meter = null; }
+    }
     public static void SetEnabled(bool on) { enabled = on; }
 
     static IAudioMeterInformation Open() {
@@ -131,8 +200,11 @@ static class Meter {
     public static void Start() {
         var thread = new Thread(() => {
             int failures = 0;
+            int version = -1;
             while (true) {
-                if (!enabled) { meter = null; Thread.Sleep(200); continue; }
+                int nextVersion = Interlocked.CompareExchange(ref deviceVersion, 0, 0);
+                if (version != nextVersion) { CloseMeter(); version = nextVersion; }
+                if (!enabled) { CloseMeter(); Thread.Sleep(200); continue; }
                 try {
                     if (meter == null) meter = Open();
                     float peak;
@@ -140,7 +212,7 @@ static class Meter {
                     Helper.Emit("{\"type\":\"peak\",\"v\":" + peak.ToString("0.000", CultureInfo.InvariantCulture) + "}");
                     failures = 0;
                 } catch {
-                    meter = null;
+                    CloseMeter();
                     if (++failures > 5) { Thread.Sleep(2000); failures = 0; }
                 }
                 Thread.Sleep(33);
@@ -688,6 +760,15 @@ static class Bluetooth {
 // under the cursor and maps it to a path. Files are reported to the app; any
 // other click (folders, empty space, headers) is replayed unchanged, so
 // Explorer's own Alt+click still works there.
+[ComImport, Guid("6D5140C1-7436-11CE-8034-00AA006009FA"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+interface IShellServiceProvider {
+    [PreserveSig] int QueryService(ref Guid service, ref Guid iid, [MarshalAs(UnmanagedType.Interface)] out IShellBrowserWindow browser);
+}
+[ComImport, Guid("000214E2-0000-0000-C000-000000000046"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+interface IShellBrowserWindow {
+    [PreserveSig] int GetWindow(out IntPtr hwnd);
+}
+
 static class FileClick {
     [StructLayout(LayoutKind.Sequential)] struct POINT { public int x, y; }
     [StructLayout(LayoutKind.Sequential)] struct MSLLHOOKSTRUCT { public POINT pt; public uint mouseData, flags, time; public IntPtr extra; }
@@ -703,6 +784,7 @@ static class FileClick {
     [DllImport("user32.dll")] static extern int GetMessage(out MSG msg, IntPtr hwnd, uint min, uint max);
     [DllImport("user32.dll")] static extern short GetAsyncKeyState(int key);
     [DllImport("user32.dll")] static extern IntPtr WindowFromPoint(POINT pt);
+    [DllImport("user32.dll")] static extern IntPtr GetParent(IntPtr hwnd);
     [DllImport("user32.dll")] static extern IntPtr GetAncestor(IntPtr hwnd, uint flags);
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern int GetClassName(IntPtr hwnd, System.Text.StringBuilder name, int max);
     [DllImport("user32.dll")] static extern uint SendInput(uint count, INPUT[] inputs, int size);
@@ -828,9 +910,9 @@ static class FileClick {
     static object Get(object target, string name) { return Invoke(target, name, System.Reflection.BindingFlags.GetProperty); }
 
     // Folders shown by the Explorer window that owns hwnd, via Shell.Application.
-    // Windows 11 tabs all report the window's HWND, so every tab is returned
-    // and the caller looks for the clicked item in each.
-    static List<object> ExplorerFolders(IntPtr root) {
+    // Windows 11 tabs share the top-level HWND; match the shell browser
+    // against the tab containing the clicked view before resolving a name.
+    static List<object> ExplorerFolders(IntPtr root, IntPtr activeTab) {
         var result = new List<object>();
         var shell = Activator.CreateInstance(Type.GetTypeFromProgID("Shell.Application"));
         var windows = Invoke(shell, "Windows", System.Reflection.BindingFlags.InvokeMethod);
@@ -841,10 +923,30 @@ static class FileClick {
             if (window == null) continue;
             try {
                 if (new IntPtr(Convert.ToInt64(Get(window, "HWND"))) != root) continue;
+                if (activeTab != IntPtr.Zero) {
+                    Guid service = new Guid("4C96BE40-915C-11CF-99D3-00AA004AE837");
+                    Guid iid = typeof(IShellBrowserWindow).GUID;
+                    IShellBrowserWindow browser;
+                    if (((IShellServiceProvider)window).QueryService(ref service, ref iid, out browser) != 0) continue;
+                    try {
+                        IntPtr hwnd;
+                        if (browser.GetWindow(out hwnd) != 0 || hwnd != activeTab) continue;
+                    } finally { Marshal.ReleaseComObject(browser); }
+                }
                 result.Add(Get(Get(window, "Document"), "Folder"));
             } catch { }
         }
+        // If tab identity is unavailable, never guess between multiple tabs.
+        if (result.Count > 1) result.Clear();
         return result;
+    }
+
+    static IntPtr TabAt(POINT point, IntPtr root) {
+        for (IntPtr hwnd = WindowFromPoint(point); hwnd != IntPtr.Zero && hwnd != root; hwnd = GetParent(hwnd)) {
+            string cls = ClassOf(hwnd);
+            if (cls == "ShellTabWindowClass" || cls == "TabWindowClass") return hwnd;
+        }
+        return IntPtr.Zero;
     }
 
     // Virtual views (Home, Recent, search results) have no folder on disk;
@@ -898,7 +1000,7 @@ static class FileClick {
         string cls = ClassOf(root);
         string file = null;
         if (cls == "CabinetWClass") {
-            var tabs = ExplorerFolders(root);
+            var tabs = ExplorerFolders(root, TabAt(pt, root));
             var paths = new List<string>();
             foreach (var folder in tabs) {
                 try {

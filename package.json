@@ -16,6 +16,9 @@
   "private": true,
   "main": "electron/main.cjs",
   "scripts": {
+    "test": "node --test tests/regression.test.cjs",
+    "test:native": "node tests/native-smoke.cjs && node tests/native-restart-smoke.cjs",
+    "test:ui": "node tests/run-ui-smoke.cjs",
     "dev": "concurrently -k -n vite,electron \"vite\" \"wait-on tcp:127.0.0.1:5173 && cross-env TOPNOTCH_DEV=1 electron .\"",
     "build": "vite build",
     "start": "vite build && electron .",
@@ -69,6 +72,8 @@
       "!node_modules/onnxruntime-node/bin/napi-v6/linux/**"
     ],
     "asarUnpack": [
+      "electron/image-decode.cjs",
+      "electron/image-codecs.cjs",
       "electron/system-helper.cs",
       "electron/system-helper.ps1",
       "**/*.node",

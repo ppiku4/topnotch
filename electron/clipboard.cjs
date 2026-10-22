@@ -98,7 +98,7 @@ function createClipboardHistory({ dir, onChange }) {
     const key = 'txt:' + crypto.createHash('sha1').update(text).digest('hex');
     if (key === lastKey) return;
     lastKey = key;
-    add({ type: 'text', text: text.slice(0, 5000) }, key);
+    add({ type: 'text', text }, key);
   }
 
   return {

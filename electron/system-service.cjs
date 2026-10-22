@@ -11,6 +11,8 @@ function createSystemService({ onLevels, onEvent = () => {}, log = console.log }
   let child = null;
   let stopped = false;
   let restartDelay = 1000;
+  let restartTimer = null;
+  const subscriptions = { stats: false, meter: false, fileclick: 'fileclick off' };
 
   function spawnHelper() {
     if (process.platform === 'darwin') {
@@ -30,6 +32,8 @@ function createSystemService({ onLevels, onEvent = () => {}, log = console.log }
   }
 
   function start() {
+    if (stopped || child) return;
+    clearTimeout(restartTimer);
     child = spawnHelper();
     child.on('error', (error) => log('[system-helper] ' + error.message));
 
@@ -39,7 +43,7 @@ function createSystemService({ onLevels, onEvent = () => {}, log = console.log }
       child = null;
       if (stopped) return;
       log(`[system-helper] exited with ${code}, restarting in ${restartDelay}ms`);
-      setTimeout(start, restartDelay);
+      restartTimer = setTimeout(start, restartDelay);
       restartDelay = Math.min(restartDelay * 2, 30000);
     });
   }
@@ -47,7 +51,14 @@ function createSystemService({ onLevels, onEvent = () => {}, log = console.log }
   function handleLine(line) {
     let msg;
     try { msg = JSON.parse(line); } catch (_) { return; }
-    if (msg.type === 'ready') { restartDelay = 1000; onEvent(msg); return; }
+    if (msg.type === 'ready') {
+      restartDelay = 1000;
+      command(subscriptions.stats ? 'stats on' : 'stats off');
+      command(subscriptions.meter ? 'meter on' : 'meter off');
+      command(subscriptions.fileclick);
+      onEvent(msg);
+      return;
+    }
     if (msg.type === 'error') { log('[system-helper] ' + msg.message); return; }
     if (msg.type === 'volume') {
       const changed = levels.volume !== null && (levels.volume !== msg.value || levels.muted !== msg.muted);
@@ -78,17 +89,17 @@ function createSystemService({ onLevels, onEvent = () => {}, log = console.log }
     setVolume: (value) => command(`volume ${clampPercent(value)}`),
     toggleMute: () => command('mute toggle'),
     setBrightness: (value) => command(`brightness ${clampPercent(value)}`),
-    setStats: (on) => command(on ? 'stats on' : 'stats off'),
+    setStats: (on) => { subscriptions.stats = !!on; command(on ? 'stats on' : 'stats off'); },
     listMixer: () => command('mixer list'),
     resendTimeline: () => command('timeline'),
-    setMeter: (on) => command(on ? 'meter on' : 'meter off'),
-    setFileClick: (on, exts = []) => command(on ? `fileclick on ${exts.filter((e) => /^[a-z0-9]+$/.test(e)).join(',')}` : 'fileclick off'),
+    setMeter: (on) => { subscriptions.meter = !!on; command(on ? 'meter on' : 'meter off'); },
+    setFileClick: (on, exts = []) => { subscriptions.fileclick = on ? `fileclick on ${exts.filter((e) => /^[a-z0-9]+$/.test(e)).join(',')}` : 'fileclick off'; command(subscriptions.fileclick); },
     setAppVolume: (pid, value) => command(`mixer set ${pid} ${clampPercent(value)}`),
     toggleAppMute: (pid) => command(`mixer mute ${pid} toggle`),
     seek: (seconds, appId) => command(`seek ${Math.max(0, seconds).toFixed(3)}${appId ? ' ' + appId : ''}`),
     // COM endpoints and DDC handles go stale across sleep.
     restart: () => { if (child) child.kill(); else start(); },
-    stop: () => { stopped = true; if (child) child.kill(); }
+    stop: () => { stopped = true; clearTimeout(restartTimer); if (child) child.kill(); }
   };
 }
 

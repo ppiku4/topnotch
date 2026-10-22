@@ -46,8 +46,7 @@ async function checkForUpdate(currentVersion) {
 // so there the new DMG is downloaded and opened for a drag-to-install.
 const fs = require('fs');
 const path = require('path');
-const crypto = require('crypto');
-const { once } = require('events');
+const { saveResponse } = require('./download.cjs');
 
 function createInstaller({ app, shell, log, onProgress }) {
   const portable = !!process.env.PORTABLE_EXECUTABLE_FILE;
@@ -92,29 +91,19 @@ function createInstaller({ app, shell, log, onProgress }) {
     if (!response.ok || !response.body) throw new Error(`download failed (${response.status})`);
     const total = Number(response.headers.get('content-length')) || asset.size || 0;
     const partial = target + '.part';
-    const out = fs.createWriteStream(partial);
-    const hash = crypto.createHash('sha256');
-    let received = 0;
-    let lastPercent = -1;
-    for await (const chunk of response.body) {
-      hash.update(chunk);
-      if (!out.write(chunk)) await once(out, 'drain');
-      received += chunk.length;
-      const percent = total ? Math.floor((received / total) * 100) : 0;
-      if (percent !== lastPercent) { lastPercent = percent; onProgress({ phase: 'downloading', percent, transferred: received, total }); }
-    }
-    await new Promise((resolve, reject) => out.end((e) => (e ? reject(e) : resolve())));
-    // GitHub publishes a SHA-256 for every release asset; the file is only
-    // kept (and opened) if it matches.
     const expected = /^sha256:([0-9a-f]{64})$/i.exec(asset.digest || '')?.[1];
     if (!expected) {
-      fs.rmSync(partial, { force: true });
+      await response.body.cancel();
       throw new Error('the release has no checksum for this file');
     }
-    if (hash.digest('hex') !== expected.toLowerCase()) {
-      fs.rmSync(partial, { force: true });
-      throw new Error('the download failed its checksum');
-    }
+    let lastPercent = -1;
+    await saveResponse(response, partial, expected, ({ received, progress }) => {
+      const percent = Math.floor(progress * 100);
+      if (percent !== lastPercent) {
+        lastPercent = percent;
+        onProgress({ phase: 'downloading', percent, transferred: received, total });
+      }
+    }, total);
     fs.renameSync(partial, target);
     if (mac) shell.openPath(target); else shell.showItemInFolder(target);
     return { status: 'downloaded', path: target, version: String(release.tag_name).replace(/^v/i, '') };

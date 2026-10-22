@@ -8,7 +8,7 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const crypto = require('crypto');
+const { downloadVerified } = require('./download.cjs');
 const { spawn } = require('child_process');
 
 const MAC = process.platform === 'darwin';
@@ -39,37 +39,6 @@ function run(exe, args, options = {}) {
     child.on('error', reject);
     child.on('close', (code) => (code === 0 ? resolve() : reject(new Error(stderr.trim().split('\n').pop() || `${path.basename(exe)} exit ${code}`))));
   });
-}
-
-// Streams `urls[0]` (then the next on failure) to `dest`, checking the
-// SHA-256 as it goes. onProgress gets 0..1.
-async function downloadVerified(urls, sha256, dest, onProgress) {
-  let lastError = null;
-  for (const url of [].concat(urls)) {
-    try {
-      const response = await fetch(url);
-      if (!response.ok) throw new Error(`Download failed (${response.status})`);
-      const total = Number(response.headers.get('content-length')) || 0;
-      const hash = crypto.createHash('sha256');
-      const out = fs.createWriteStream(dest);
-      let received = 0;
-      let lastReport = 0;
-      for await (const chunk of response.body) {
-        hash.update(chunk);
-        received += chunk.length;
-        if (!out.write(chunk)) await new Promise((r) => out.once('drain', r));
-        if (total && Date.now() - lastReport > 150) { lastReport = Date.now(); onProgress?.(received / total); }
-      }
-      await new Promise((resolve, reject) => out.end((error) => (error ? reject(error) : resolve())));
-      if (hash.digest('hex') !== sha256) throw new Error('Download failed its checksum');
-      onProgress?.(1);
-      return dest;
-    } catch (error) {
-      lastError = error;
-      await fs.promises.rm(dest, { force: true }).catch(() => {});
-    }
-  }
-  throw lastError;
 }
 
 function createLibreOffice({ dir, log }) {

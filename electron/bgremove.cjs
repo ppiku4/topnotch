@@ -5,7 +5,7 @@
 // SHA-256.
 const fs = require('fs');
 const path = require('path');
-const crypto = require('crypto');
+const { downloadVerified } = require('./download.cjs');
 
 const RELEASES = 'https://github.com/danielgatis/rembg/releases/download/v0.0.0/';
 const IMAGENET = { mean: [0.485, 0.456, 0.406], std: [0.229, 0.224, 0.225] };
@@ -64,6 +64,24 @@ function createBackgroundRemover({ dir, log, getSettings = () => ({}), onStatus 
   const downloads = new Map();  // id → { promise, progress }
   let session = null;           // { key, session, device }
   let releaseTimer = null;
+  let workQueue = Promise.resolve();
+  let pending = 0;
+
+  // Inference, model deletion and session release share one queue. No timer
+  // can dispose a session in use, and concurrent requests share initialization.
+  function exclusive(operation, armIdle = true) {
+    clearTimeout(releaseTimer);
+    pending++;
+    const result = workQueue.then(operation);
+    workQueue = result.catch(() => {}).finally(() => {
+      pending--;
+      if (armIdle && pending === 0 && session) {
+        releaseTimer = setTimeout(() => { exclusive(releaseSession, false).catch(() => {}); }, IDLE_RELEASE_MS);
+      }
+    });
+    return result;
+  }
+
 
   const current = () => {
     const { bgModel } = getSettings();
@@ -97,21 +115,7 @@ function createBackgroundRemover({ dir, log, getSettings = () => ({}), onStatus 
       const target = path.join(home, model.file);
       const partial = target + '.part';
       try {
-        const response = await fetch(RELEASES + model.file);
-        if (!response.ok) throw new Error(`Download failed (${response.status})`);
-        const total = Number(response.headers.get('content-length')) || 0;
-        const hash = crypto.createHash('sha256');
-        const out = fs.createWriteStream(partial);
-        let received = 0;
-        let lastReport = 0;
-        for await (const chunk of response.body) {
-          hash.update(chunk);
-          received += chunk.length;
-          if (!out.write(chunk)) await new Promise((r) => out.once('drain', r));
-          if (total && Date.now() - lastReport > 150) { lastReport = Date.now(); report(received / total); }
-        }
-        await new Promise((resolve, reject) => out.end((error) => (error ? reject(error) : resolve())));
-        if (hash.digest('hex') !== model.sha256) throw new Error('Model download failed its checksum');
+        await downloadVerified(RELEASES + model.file, model.sha256, partial, report);
         fs.renameSync(partial, target);
         log(`background model ${id} installed`);
         return target;
@@ -126,7 +130,7 @@ function createBackgroundRemover({ dir, log, getSettings = () => ({}), onStatus 
     return entry.promise;
   }
 
-  async function remove(id) {
+  async function removeModel(id) {
     if (!MODELS[id] || downloads.has(id)) return;
     if (session?.key.startsWith(id + '|')) await releaseSession();
     const files = [path.join(home, MODELS[id].file)];
@@ -176,14 +180,12 @@ function createBackgroundRemover({ dir, log, getSettings = () => ({}), onStatus 
       session = { key, session: created, device };
       onStatus(status());
     }
-    releaseTimer = setTimeout(releaseSession, IDLE_RELEASE_MS);
     return session.session;
   }
 
   // sharp pipeline in, PNG with a transparent background: written to `out`,
   // or returned as a buffer when `out` is null (the editor).
-  async function removeBackground(input, out, onProgress) {
-    const id = current();
+  async function removeBackground(input, out, onProgress, id) {
     if (!installed(id)) throw new Error(`${MODELS[id].label} model is not downloaded`);
     const model = MODELS[id];
     const sharp = require('sharp');
@@ -240,9 +242,12 @@ function createBackgroundRemover({ dir, log, getSettings = () => ({}), onStatus 
     size: () => MODELS[current()].size,
     label: () => MODELS[current()].label,
     download,
-    remove,
+    remove: (id) => exclusive(() => removeModel(id)),
     status,
-    removeBackground
+    removeBackground: (input, out, onProgress) => {
+      const id = current();
+      return exclusive(() => removeBackground(input, out, onProgress, id));
+    }
   };
 }
 

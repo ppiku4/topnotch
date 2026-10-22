@@ -1,4 +1,4 @@
-param([Parameter(Mandatory = $true)][string]$SourcePath)
+param([Parameter(Mandatory = $true)][string]$SourcePath, [switch]$CompileOnly)
 $ErrorActionPreference = 'Stop'
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 $SourcePath = (Resolve-Path -LiteralPath $SourcePath).Path
@@ -45,4 +45,5 @@ try {
     Fail ('compile: ' + $_.Exception.Message)
 }
 
-$helper.GetMethod('Run').Invoke($null, @())
+if ($CompileOnly) { [Console]::Out.WriteLine('Native helper compilation passed') }
+else { $helper.GetMethod('Run').Invoke($null, @()) }

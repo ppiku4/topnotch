@@ -7,10 +7,9 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const crypto = require('crypto');
 const { spawn, execFile } = require('child_process');
 const { createBackgroundRemover } = require('./bgremove.cjs');
-const { createLibreOffice } = require('./engines.cjs');
+const { downloadVerified, createLibreOffice } = require('./engines.cjs');
 
 const EXT_ALIASES = { jpeg: 'jpg', jpe: 'jpg', tif: 'tiff', htm: 'html', markdown: 'md', aif: 'aiff', text: 'txt' };
 const KINDS = {
@@ -93,62 +92,7 @@ function tempDir() {
 
 // ── Images ────────────────────────────────────────────────────────────────
 
-// Uncompressed BMP / ICO DIB → RGBA. Covers 1/4/8/24/32-bit, which is what
-// Windows writes; RLE and bitfield variants other than plain BGRA are rare.
-function decodeDib(buf, offset, { fileHeader, icon }) {
-  const pixelOffset = fileHeader ? buf.readUInt32LE(10) : null;
-  const h = offset;
-  const headerSize = buf.readUInt32LE(h);
-  const width = buf.readInt32LE(h + 4);
-  let height = buf.readInt32LE(h + 8);
-  if (icon) height /= 2; // XOR mask + AND mask
-  const bpp = buf.readUInt16LE(h + 14);
-  const compression = buf.readUInt32LE(h + 16);
-  if (compression !== 0 && compression !== 3) throw new Error('Compressed BMP files are not supported');
-  const topDown = height < 0;
-  height = Math.abs(height);
-  const colors = bpp <= 8 ? (buf.readUInt32LE(h + 32) || 1 << bpp) : 0;
-  const palette = h + headerSize + (compression === 3 && headerSize === 40 ? 12 : 0);
-  const data = pixelOffset ?? palette + colors * 4;
-  const stride = Math.floor((bpp * width + 31) / 32) * 4;
-  const out = Buffer.alloc(width * height * 4);
-  let anyAlpha = false;
-  for (let y = 0; y < height; y++) {
-    const row = data + (topDown ? y : height - 1 - y) * stride;
-    for (let x = 0; x < width; x++) {
-      const o = (y * width + x) * 4;
-      let b, g, r, a = 255;
-      if (bpp === 32) { b = buf[row + x * 4]; g = buf[row + x * 4 + 1]; r = buf[row + x * 4 + 2]; a = buf[row + x * 4 + 3]; if (a) anyAlpha = true; }
-      else if (bpp === 24) { b = buf[row + x * 3]; g = buf[row + x * 3 + 1]; r = buf[row + x * 3 + 2]; }
-      else if (bpp === 16) { const v = buf.readUInt16LE(row + x * 2); r = ((v >> 10) & 31) * 8; g = ((v >> 5) & 31) * 8; b = (v & 31) * 8; }
-      else {
-        const perByte = 8 / bpp;
-        const byte = buf[row + Math.floor(x / perByte)];
-        const index = (byte >> ((perByte - 1 - (x % perByte)) * bpp)) & ((1 << bpp) - 1);
-        const p = palette + index * 4;
-        b = buf[p]; g = buf[p + 1]; r = buf[p + 2];
-      }
-      out[o] = r; out[o + 1] = g; out[o + 2] = b; out[o + 3] = a;
-    }
-  }
-  // 32-bit BMPs often leave alpha at zero; treat them as opaque.
-  if (bpp === 32 && !anyAlpha) for (let i = 3; i < out.length; i += 4) out[i] = 255;
-  return { width, height, data: out };
-}
-
-function decodeIco(buf) {
-  const count = buf.readUInt16LE(4);
-  let best = null;
-  for (let i = 0; i < count; i++) {
-    const e = 6 + i * 16;
-    const entry = { width: buf[e] || 256, size: buf.readUInt32LE(e + 8), offset: buf.readUInt32LE(e + 12) };
-    if (!best || entry.width > best.width) best = entry;
-  }
-  if (!best) throw new Error('Empty icon file');
-  const image = buf.subarray(best.offset, best.offset + best.size);
-  if (image.readUInt32BE(0) === 0x89504e47) return { png: image };
-  return decodeDib(buf, best.offset, { icon: true });
-}
+const { decodeImage } = require('./image-decode.cjs');
 
 function encodeBmp({ width, height, data }) {
   const stride = Math.ceil((width * 3) / 4) * 4;
@@ -200,6 +144,7 @@ async function encodeIco(sharp, input) {
 async function loadImage(file) {
   const sharp = require('sharp');
   const ext = extOf(file);
+  if (['bmp', 'ico'].includes(ext) && (await fs.promises.stat(file)).size > 256 * 1024 * 1024) throw new Error('Image file exceeds the 256 MB limit');
   const buf = await fs.promises.readFile(file);
   const raw = (img) => sharp(img.data, { raw: { width: img.width, height: img.height, channels: 4 } });
   if (ext === 'psd') {
@@ -211,9 +156,9 @@ async function loadImage(file) {
     if (!psd.imageData) throw new Error('This PSD has no flattened image (save it with "Maximize compatibility")');
     return raw({ width: psd.width, height: psd.height, data: Buffer.from(psd.imageData.data.buffer) });
   }
-  if (ext === 'bmp') return raw(decodeDib(buf, 14, { fileHeader: true }));
+  if (ext === 'bmp') return raw(await decodeImage(buf, 'bmp'));
   if (ext === 'ico') {
-    const icon = decodeIco(buf);
+    const icon = await decodeImage(buf, 'ico');
     return icon.png ? sharp(icon.png) : raw(icon);
   }
   return sharp(buf, { animated: ext === 'gif' || ext === 'webp', density: ext === 'svg' ? 192 : undefined });
@@ -567,20 +512,7 @@ function createConverter({ dir, log, renderPdf, onJob, getSettings, onModelStatu
       const work = tempDir();
       try {
         const zip = path.join(work, MAC ? 'ffmpeg.gz' : 'ffmpeg.zip');
-        const response = await fetch(FFMPEG.url);
-        if (!response.ok) throw new Error(`Download failed (${response.status})`);
-        const total = Number(response.headers.get('content-length')) || 0;
-        const hash = crypto.createHash('sha256');
-        const outFile = fs.createWriteStream(zip);
-        let received = 0;
-        for await (const chunk of response.body) {
-          hash.update(chunk);
-          received += chunk.length;
-          if (!outFile.write(chunk)) await new Promise((r) => outFile.once('drain', r));
-          if (total) onProgress?.(received / total);
-        }
-        await new Promise((resolve, reject) => outFile.end((error) => (error ? reject(error) : resolve())));
-        if (hash.digest('hex') !== FFMPEG.sha256) throw new Error('ffmpeg download failed its checksum');
+        await downloadVerified(FFMPEG.url, FFMPEG.sha256, zip, onProgress);
         if (MAC) {
           fs.mkdirSync(vendor, { recursive: true });
           await fs.promises.writeFile(vendorExe, require('zlib').gunzipSync(await fs.promises.readFile(zip)));
@@ -614,8 +546,9 @@ function createConverter({ dir, log, renderPdf, onJob, getSettings, onModelStatu
     const job = { id: nextId++, name: path.basename(file), target: 'no background', status: 'running', progress: 0 };
     const report = (patch) => { Object.assign(job, patch); onJob({ ...job }); };
     report({});
-    const out = freePath(path.dirname(file), path.basename(file, path.extname(file)) + ' (no background)', 'png');
+    let out;
     try {
+      out = freePath(path.dirname(file), path.basename(file, path.extname(file)) + ' (no background)', 'png');
       await remover.removeBackground((await loadImage(file)).rotate(), out, (progress) => report({ progress }));
       report({ status: 'done', progress: 1, output: out });
       return out;
@@ -649,8 +582,9 @@ function createConverter({ dir, log, renderPdf, onJob, getSettings, onModelStatu
     const job = { id, name, target: target.toUpperCase(), status: 'running', progress: 0 };
     const report = (patch) => { Object.assign(job, patch); onJob({ ...job }); };
     report({});
-    const out = outputFor(file, target);
+    let out;
     try {
+      out = outputFor(file, target);
       if (engine === 'image') {
         await saveImage((await loadImage(file)).rotate(), target, out);
       } else if (engine === 'ffmpeg') {

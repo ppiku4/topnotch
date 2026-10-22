@@ -128,7 +128,8 @@ export default function Editor() {
   };
 
   const oriented = useMemo(() => (img ? orient(img, rotation, flipX, flipY) : null), [img, rotation, flipX, flipY]);
-  const cropPx = oriented ? { w: Math.max(1, Math.round(crop.w * oriented.width)), h: Math.max(1, Math.round(crop.h * oriented.height)) } : { w: 0, h: 0 };
+  const activeCrop = cropping ? crop : FULL;
+  const cropPx = oriented ? { w: Math.max(1, Math.round(activeCrop.w * oriented.width)), h: Math.max(1, Math.round(activeCrop.h * oriented.height)) } : { w: 0, h: 0 };
   const outSize = size || cropPx;
   const filter = `brightness(${1 + adjust.brightness / 100}) contrast(${1 + adjust.contrast / 100}) saturate(${1 + adjust.saturation / 100})`;
 
@@ -238,7 +239,7 @@ export default function Editor() {
   const save = async () => {
     if (!oriented) return;
     setStatus({ kind: 'saving', text: 'Saving…' });
-    const sx = Math.round(crop.x * oriented.width), sy = Math.round(crop.y * oriented.height);
+    const sx = Math.round(activeCrop.x * oriented.width), sy = Math.round(activeCrop.y * oriented.height);
     const out = document.createElement('canvas');
     out.width = outSize.w;
     out.height = outSize.h;
@@ -294,7 +295,7 @@ export default function Editor() {
           <section>
             <div className="ed-head">
               <span>Crop</span>
-              <button className={`ed-toggle${cropping ? ' is-on' : ''}`} onClick={() => setCropping((c) => !c)}>{cropping ? 'On' : 'Off'}</button>
+              <button className={`ed-toggle${cropping ? ' is-on' : ''}`} onClick={() => { setCropping((c) => !c); setSize(null); }}>{cropping ? 'On' : 'Off'}</button>
             </div>
             <div className="ed-chips">
               {RATIOS.map((r) => (
