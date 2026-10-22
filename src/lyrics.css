@@ -137,17 +137,21 @@
 
 /* ── Edge glow, material ───────────────────────────────────────────────── */
 
-/* --beat (0..1, beat.js) nudges the glow on each beat: a few pixels more
-   blur and a touch more colour, then it settles. Deliberately small. */
+/* The glow breathes with the music: --level (overall loudness) widens it a
+   little, --beat (each kick, beat.js) adds a short swell on top. Both are
+   0..1 and kept small so it reads as "alive", not flashing. */
 .island.is-glowing.glow-subtle {
+  --pulse: calc(var(--level, 0) * 0.35 + var(--beat, 0) * 0.65);
   box-shadow:
-    0 6px calc(24px + var(--beat, 0) * 7px) calc(-6px + var(--beat, 0) * 1.5px) color-mix(in srgb, var(--accent) calc(55% + var(--beat, 0) * 18%), transparent),
+    0 6px calc(22px + var(--pulse) * 10px) calc(-6px + var(--pulse) * 2px) color-mix(in srgb, var(--accent) calc(48% + var(--pulse) * 22%), transparent),
     0 10px 30px rgba(0, 0, 0, 0.35);
 }
 .island.is-glowing.glow-strong {
+  --pulse: calc(var(--level, 0) * 0.35 + var(--beat, 0) * 0.65);
   box-shadow:
-    0 8px calc(34px + var(--beat, 0) * 10px) calc(-2px + var(--beat, 0) * 2px) color-mix(in srgb, var(--accent) calc(85% + var(--beat, 0) * 15%), transparent),
-    0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent),
+    0 8px calc(36px + var(--pulse) * 16px) calc(0px + var(--pulse) * 4px) color-mix(in srgb, var(--accent) calc(85% + var(--pulse) * 15%), transparent),
+    0 0 calc(14px + var(--pulse) * 8px) calc(1px + var(--pulse) * 1px) color-mix(in srgb, var(--accent-2, var(--accent)) calc(45% + var(--pulse) * 25%), transparent),
+    0 0 0 1px color-mix(in srgb, var(--accent) 40%, transparent),
     0 10px 30px rgba(0, 0, 0, 0.35);
 }
 /* Per-frame updates; the 0.6 s box-shadow transition would smear them. */
@@ -161,11 +165,19 @@
   background: rgba(10, 10, 12, 0.22);
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
 }
-.island.is-glass.is-glowing.glow-subtle,
-.island.is-glass.is-glowing.glow-strong {
+/* Dark glass keeps its hairline; Subtle and Strong differ as in Solid. */
+.island.is-glass.is-glowing.glow-subtle {
+  --pulse: calc(var(--level, 0) * 0.35 + var(--beat, 0) * 0.65);
   box-shadow:
     inset 0 0 0 1px rgba(255, 255, 255, 0.1),
-    0 6px calc(24px + var(--beat, 0) * 7px) calc(-6px + var(--beat, 0) * 1.5px) color-mix(in srgb, var(--accent) calc(55% + var(--beat, 0) * 18%), transparent);
+    0 6px calc(22px + var(--pulse) * 10px) calc(-6px + var(--pulse) * 2px) color-mix(in srgb, var(--accent) calc(48% + var(--pulse) * 22%), transparent);
+}
+.island.is-glass.is-glowing.glow-strong {
+  --pulse: calc(var(--level, 0) * 0.35 + var(--beat, 0) * 0.65);
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--accent) 45%, rgba(255, 255, 255, 0.12)),
+    0 8px calc(36px + var(--pulse) * 16px) calc(0px + var(--pulse) * 4px) color-mix(in srgb, var(--accent) calc(85% + var(--pulse) * 15%), transparent),
+    0 0 calc(14px + var(--pulse) * 8px) calc(1px + var(--pulse) * 1px) color-mix(in srgb, var(--accent-2, var(--accent)) calc(45% + var(--pulse) * 25%), transparent);
 }
 
 /* ── Music tab: album colours drifting behind everything, swelling a

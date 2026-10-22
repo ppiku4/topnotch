@@ -7,30 +7,54 @@ import { bridge } from './bridge.js';
 // The helper reports the output peak about 30 times a second while asked
 // ("meter on"). From it:
 //   level  smoothed loudness 0..1 (gentle attack, slow release)
-//   beat   0..1, jumps to 1 on an onset (a peak well above the recent
-//          average) and decays over ~250 ms, the "kick" the glow follows
+//   beat   0..1, jumps up on an onset and decays over ~250 ms, the "kick"
+//          the glow follows. An onset is a rising peak that stands out from
+//          the recent average by more than the track's usual wobble, so it
+//          works for quiet songs and for loud, heavily mastered ones (whose
+//          peaks sit near full scale all the time).
 // Where no level arrives (macOS has no system meter yet), a slow breathe
 // stands in so things still feel alive without pretending to be on the beat.
+
+// Adaptive onset detector over raw peaks (0..1). Exported for tests.
+export function createBeatDetector() {
+  let mean = 0;       // ~1 s running average of the peak
+  let spread = 0.05;  // ~1 s running mean absolute deviation
+  let previous = 0;
+  let lastOnset = -1e9;
+  return function push(v, now) {
+    const x = Math.max(0, Math.min(1, v));
+    const rise = x - previous;
+    previous = x;
+    const above = x - mean;
+    // Quiet passages (and silence) never count as beats.
+    const threshold = Math.max(0.03, spread * 1.3);
+    let onset = 0;
+    if (x > 0.02 && above > threshold && rise > threshold * 0.35 && now - lastOnset > 200) {
+      lastOnset = now;
+      onset = Math.min(1, 0.45 + above / (threshold * 4));
+    }
+    mean += (x - mean) * 0.04;
+    spread += (Math.abs(x - mean) - spread) * 0.04;
+    return onset;
+  };
+}
 
 let users = 0;
 let stopPeaks = null;
 let level = 0;
-let average = 0;
 let beat = 0;
-let lastOnset = 0;
 let lastPeakAt = 0;
 let startedAt = 0;
+const detect = createBeatDetector();
 
 function onPeak(v) {
   const now = performance.now();
   lastPeakAt = now;
-  const target = Math.min(1, Math.sqrt(Math.max(0, v)) * 1.25);
+  // Loudness for the lyric swell: sqrt lifts quiet passages a little.
+  const target = Math.min(1, Math.sqrt(Math.max(0, v)) * 1.1);
   level += (target - level) * (target > level ? 0.22 : 0.08);
-  average += (target - average) * 0.03;
-  if (target > average * 1.32 + 0.04 && now - lastOnset > 180) {
-    lastOnset = now;
-    beat = Math.min(1, 0.55 + (target - average) * 1.6);
-  }
+  const onset = detect(v, now);
+  if (onset > beat) beat = onset;
 }
 
 function acquire() {
@@ -48,7 +72,6 @@ function release() {
     stopPeaks?.();
     stopPeaks = null;
     level = 0;
-    average = 0;
     beat = 0;
   }
 }
