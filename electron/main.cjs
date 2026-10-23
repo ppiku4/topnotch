@@ -4,7 +4,7 @@ const path = require('path');
 const { fork, spawn } = require('child_process');
 const readline = require('readline');
 const { app, BrowserWindow, Menu, Notification, Tray, ipcMain, nativeImage, powerMonitor, screen, shell } = require('electron');
-const { pressMediaKey, isLeftButtonDown, isKeyDown, forceForeground, maximizedForegroundRect, setAcrylic, setRoundedCorners } = require('./native.cjs');
+const { clipboardChangeToken, pressMediaKey, isLeftButtonDown, isKeyDown, forceForeground, maximizedForegroundRect, setAcrylic, setRoundedCorners } = require('./native.cjs');
 const { createSystemService } = require('./system-service.cjs');
 const { createConfig, sanitizePatch } = require('./config.cjs');
 const { createClipboardHistory } = require('./clipboard.cjs');
@@ -283,7 +283,7 @@ function createNotchWindow() {
   notchWindow.webContents.on('render-process-gone', (_e, details) => {
     if (!quitting && details.reason !== 'clean-exit') setTimeout(() => notchWindow?.webContents.reload(), 1000);
   });
-  notchWindow.webContents.on('did-finish-load', async () => {
+  notchWindow.webContents.on('topnotch-ready', async () => {
     send('config', config.get());
     if (lastMedia) send('media-state', lastMedia);
     if (systemService) send('system-levels', { levels: systemService.getLevels(), changed: null });
@@ -295,7 +295,7 @@ function createNotchWindow() {
     if (lastWeather) send('weather', lastWeather);
     if (clipboardHistory) send('clipboard', clipboardHistory.list());
     send('shelf', await shelf.list());
-    notchWindow.showInactive();
+    if (notchWindow && !notchWindow.isDestroyed()) notchWindow.showInactive();
   });
 
   loadPage(notchWindow);
@@ -492,7 +492,12 @@ function updateLyrics() {
 
 // ── Helper events: privacy, Bluetooth, network ────────────────────────────
 
+let macClipboardToken = null;
+let macClipboardAt = 0;
 function onHelperEvent(msg) {
+  if (msg.type === 'clipboard-token') {
+    macClipboardToken = msg.value; macClipboardAt = Date.now(); return;
+  }
   if (msg.type === 'ready') {
     bluetoothDevices = null; // the first scan after a restart is a baseline
     applyFileWheel();
@@ -541,7 +546,11 @@ function onHelperEvent(msg) {
 async function publishMixer(sessions) {
   const rows = await Promise.all(sessions.map(async (session) => {
     if (session.path && !appIcons.has(session.path)) {
-      try { appIcons.set(session.path, (await app.getFileIcon(session.path, { size: 'small' })).toDataURL()); }
+      try {
+        const icon = (await app.getFileIcon(session.path, { size: 'small' })).toDataURL();
+        if (appIcons.size >= 256) appIcons.delete(appIcons.keys().next().value);
+        appIcons.set(session.path, icon);
+      }
       catch (_) { appIcons.set(session.path, null); }
     }
     return { ...session, icon: session.path ? appIcons.get(session.path) : null };
@@ -794,6 +803,7 @@ function startDragWatch() {
     if (!notchWindow || notchWindow.isDestroyed() || !features().shelf) return;
     // Windows: any drag with the left button; macOS: only file drags.
     const down = MAC ? fileDragActive : isLeftButtonDown();
+    if (!down && !wasDown && !active) return;
     const cursor = screen.getCursorScreenPoint();
     if (dockDragging) return;
     const b = notchWindow.getBounds();
@@ -1214,11 +1224,19 @@ ipcMain.on('show-converted', (event, file) => {
   if (fromNotch(event) && convertedFiles.has(file) && fs.existsSync(file)) shell.showItemInFolder(file);
 });
 
+// Lazy screen chunks mount after the document loads. Replay state only
+// after React has installed subscriptions, including after a renderer reload.
+ipcMain.on('renderer-ready', (event) => {
+  if (!fromAppPage(event)) return;
+  if (event.sender === notchWindow?.webContents) event.sender.emit('topnotch-ready');
+  else if (event.sender === wheelWindow?.webContents && wheelMenu) event.sender.send('wheel-menu', wheelMenu);
+});
+
 ipcMain.handle('editor-get', async (event) => {
   if (!fromEditor(event) || !editorState) return null;
   try {
     const { file, mode } = editorState;
-    return { file, name: path.basename(file), mode, ext: extOf(file), targets: TARGETS.image, image: await converter.previewImage(file) };
+    return { file, name: path.basename(file), mode, ext: extOf(file), targets: TARGETS.image, image: await converter.previewImage(file, true) };
   } catch (error) {
     return { error: error.message };
   }
@@ -1266,7 +1284,7 @@ ipcMain.handle('editor-remove-bg', async (event) => {
   if (!fromEditor(event) || !editorState) return null;
   if (!converter.engines().bgmodel) return { needs: 'bgmodel', size: converter.downloadSizes().bgmodel };
   try {
-    return { image: await converter.removeBackgroundImage(editorState.file) };
+    return { image: await converter.removeBackgroundImage(editorState.file, true) };
   } catch (error) {
     log('editor remove background: ' + error.message);
     return { error: error.message };
@@ -1290,7 +1308,9 @@ app.whenReady().then(() => {
   if (MAC) app.dock?.hide();
   const dir = app.getPath('userData');
   config = createConfig(dir);
-  clipboardHistory = createClipboardHistory({ dir, onChange: (items) => send('clipboard', items) });
+  clipboardHistory = createClipboardHistory({ dir, getChangeToken: () => MAC
+    ? (Date.now() - macClipboardAt < 2500 ? macClipboardToken : null)
+    : clipboardChangeToken(), onChange: (items) => send('clipboard', items) });
   shelf = createShelf({ dir, onChange: (items) => send('shelf', items) });
   sensors = createSensors({ dir, log });
   converter = createConverter({
@@ -1346,7 +1366,19 @@ app.whenReady().then(() => {
 });
 
 app.on('second-instance', openSettings);
-app.on('before-quit', () => {
+let persistenceFlushed = false;
+app.on('before-quit', (event) => {
+  if (!persistenceFlushed) {
+    event.preventDefault();
+    if (quitting) return;
+    quitting = true;
+    clipboardHistory?.stop();
+    Promise.allSettled([clipboardHistory?.flush(), shelf?.flush()]).then((results) => {
+      for (const result of results) if (result.status === 'rejected') log('Persistence flush: ' + result.reason);
+      persistenceFlushed = true; app.quit();
+    });
+    return;
+  }
   quitting = true;
   mediaWorker?.kill();
   systemService?.stop();

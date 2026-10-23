@@ -135,33 +135,50 @@ export function useArtColors(art) {
   return colors;
 }
 
-// navigator.getBattery() works in Chromium on Windows. Desktops report a
-// permanently charging battery and never fire events, so nothing shows there.
+// One battery listener pair shared by both consumers. Late promises never
+// attach after the final subscriber has gone away (including StrictMode).
+const batterySubscribers = new Set();
+let batteryTarget = null;
+let batteryGeneration = 0;
+const reportBattery = () => {
+  for (const listener of batterySubscribers) listener(batteryTarget);
+};
+function subscribeBattery(listener) {
+  batterySubscribers.add(listener);
+  if (batteryTarget) listener(batteryTarget);
+  else if (batterySubscribers.size === 1 && navigator.getBattery) {
+    const generation = ++batteryGeneration;
+    navigator.getBattery().then((battery) => {
+      if (generation !== batteryGeneration || !batterySubscribers.size) return;
+      batteryTarget = battery;
+      battery.addEventListener('chargingchange', reportBattery);
+      battery.addEventListener('levelchange', reportBattery);
+      reportBattery();
+    }).catch(() => {});
+  }
+  return () => {
+    batterySubscribers.delete(listener);
+    if (batterySubscribers.size) return;
+    batteryGeneration++;
+    batteryTarget?.removeEventListener('chargingchange', reportBattery);
+    batteryTarget?.removeEventListener('levelchange', reportBattery);
+    batteryTarget = null;
+  };
+}
+
 export function useBatteryEvents(enabled, onEvent) {
   const onEventRef = useRef(onEvent);
   onEventRef.current = onEvent;
   useEffect(() => {
-    if (!enabled || !navigator.getBattery) return undefined;
-    let battery = null;
-    let wasLow = false;
-    const report = (reason) => onEventRef.current({ reason, charging: battery.charging, level: Math.round(battery.level * 100) });
-    const onCharging = () => report(battery.charging ? 'plugged' : 'unplugged');
-    const onLevel = () => {
+    if (!enabled) return undefined;
+    let previous = null;
+    return subscribeBattery((battery) => {
       const low = !battery.charging && battery.level <= 0.2;
-      if (low && !wasLow) report('low');
-      wasLow = low;
-    };
-    navigator.getBattery().then((b) => {
-      battery = b;
-      wasLow = !b.charging && b.level <= 0.2;
-      b.addEventListener('chargingchange', onCharging);
-      b.addEventListener('levelchange', onLevel);
+      const reason = previous && (previous.charging !== battery.charging
+        ? (battery.charging ? 'plugged' : 'unplugged') : low && !previous.low ? 'low' : null);
+      previous = { charging: battery.charging, low };
+      if (reason) onEventRef.current({ reason, charging: battery.charging, level: Math.round(battery.level * 100) });
     });
-    return () => {
-      if (!battery) return;
-      battery.removeEventListener('chargingchange', onCharging);
-      battery.removeEventListener('levelchange', onLevel);
-    };
   }, [enabled]);
 }
 
@@ -174,8 +191,15 @@ export function useTimer(onDone) {
 
   useEffect(() => {
     if (!timer || timer.paused) return undefined;
-    const tick = setInterval(() => setNow(Date.now()), 250);
-    return () => clearInterval(tick);
+    let timeout;
+    const tick = () => {
+      const now = Date.now();
+      setNow(now);
+      const left = timer.endsAt - now;
+      if (left > 0) timeout = setTimeout(tick, left % 1000 || Math.min(left, 1000));
+    };
+    tick();
+    return () => clearTimeout(timeout);
   }, [timer]);
 
   const remaining = timer ? (timer.paused ? timer.remaining : Math.max(0, timer.endsAt - now)) : 0;
@@ -251,22 +275,10 @@ export function useMixer(visible) {
 // Battery level for the status chip. Desktops report 100% and charging.
 export function useBattery() {
   const [battery, setBattery] = useState(null);
-  useEffect(() => {
-    if (!navigator.getBattery) return undefined;
-    let target = null;
-    const update = () => setBattery({ level: Math.round(target.level * 100), charging: target.charging });
-    navigator.getBattery().then((b) => {
-      target = b;
-      update();
-      b.addEventListener('levelchange', update);
-      b.addEventListener('chargingchange', update);
-    });
-    return () => {
-      if (!target) return;
-      target.removeEventListener('levelchange', update);
-      target.removeEventListener('chargingchange', update);
-    };
-  }, []);
+  useEffect(() => subscribeBattery((target) => {
+    const next = { level: Math.round(target.level * 100), charging: target.charging };
+    setBattery((old) => old?.level === next.level && old?.charging === next.charging ? old : next);
+  }), []);
   return battery;
 }
 

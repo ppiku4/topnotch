@@ -1,5 +1,17 @@
-import { useEffect } from 'react';
+import { createContext, useContext, useEffect, useState } from 'react';
 import { bridge } from './bridge.js';
+
+export const AnimationVisibility = createContext(true);
+export function useAnimationVisible() {
+  const visible = useContext(AnimationVisibility);
+  const [shown, setShown] = useState(() => !document.hidden);
+  useEffect(() => {
+    const update = () => setShown(!document.hidden);
+    document.addEventListener('visibilitychange', update);
+    return () => document.removeEventListener('visibilitychange', update);
+  }, []);
+  return visible && shown;
+}
 
 // One shared view of the music's loudness for everything that moves with it:
 // word swells in the lyrics, the island's glow and the Music tab's gradient.
@@ -122,6 +134,8 @@ export function useLoudness(active = true) {
 // While active, writes --beat (0..1) and --level (0..1) on the element every
 // frame, for CSS to follow without re-rendering React.
 export function useBeatVars(ref, active) {
+  const visible = useAnimationVisible();
+  active = active && visible;
   useEffect(() => {
     const el = ref.current;
     if (!active || !el) return undefined;

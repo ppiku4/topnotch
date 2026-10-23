@@ -73,6 +73,7 @@
     ],
     "asarUnpack": [
       "electron/image-decode.cjs",
+      "electron/image-tasks.cjs",
       "electron/image-codecs.cjs",
       "electron/system-helper.cs",
       "electron/system-helper.ps1",

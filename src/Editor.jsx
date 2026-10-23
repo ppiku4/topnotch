@@ -1,3 +1,4 @@
+import './wheel.css';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
 import { bridge } from './bridge.js';
@@ -35,16 +36,17 @@ const OPAQUE = ['jpg', 'bmp'];
 const LOCK = (on) => <Icon d={on ? <><rect x="5" y="11" width="14" height="10" rx="2" /><path d="M8 11V7a4 4 0 0 1 8 0v4" /></> : <><rect x="5" y="11" width="14" height="10" rx="2" /><path d="M8 11V7a4 4 0 0 1 7.5-2" /></>} />;
 
 // Draws the source rotated (quarter turns) and flipped into a new canvas.
-function orient(img, rotation, flipX, flipY) {
+function orient(img, rotation, flipX, flipY, preview = false) {
   const quarter = ((rotation / 90) % 4 + 4) % 4;
   const swap = quarter % 2 === 1;
   const canvas = document.createElement('canvas');
-  canvas.width = swap ? img.naturalHeight : img.naturalWidth;
-  canvas.height = swap ? img.naturalWidth : img.naturalHeight;
+  const scale = preview ? Math.min(1, 2048 / Math.max(img.naturalWidth, img.naturalHeight)) : 1;
+  canvas.width = Math.max(1, Math.round((swap ? img.naturalHeight : img.naturalWidth) * scale));
+  canvas.height = Math.max(1, Math.round((swap ? img.naturalWidth : img.naturalHeight) * scale));
   const ctx = canvas.getContext('2d');
   ctx.translate(canvas.width / 2, canvas.height / 2);
   ctx.rotate((quarter * Math.PI) / 2);
-  ctx.scale(flipX ? -1 : 1, flipY ? -1 : 1);
+  ctx.scale((flipX ? -1 : 1) * scale, (flipY ? -1 : 1) * scale);
   ctx.drawImage(img, -img.naturalWidth / 2, -img.naturalHeight / 2);
   return canvas;
 }
@@ -56,6 +58,17 @@ function Slider({ label, value, min, max, onChange, format = (v) => `${v > 0 ? '
       <input type="range" min={min} max={max} value={value} onChange={(e) => onChange(Number(e.target.value))} onDoubleClick={() => onChange(0)} />
     </label>
   );
+}
+
+function decodeEditorImage(bytes) {
+  return new Promise((resolve, reject) => {
+    const url = typeof bytes === 'string' ? bytes : URL.createObjectURL(new Blob([bytes], { type: 'image/png' }));
+    const image = new Image();
+    const release = () => { if (typeof bytes !== 'string') URL.revokeObjectURL(url); };
+    image.onload = () => { release(); resolve(image); };
+    image.onerror = () => { release(); reject(new Error('Could not decode the image')); };
+    image.src = url;
+  });
 }
 
 export default function Editor() {
@@ -79,9 +92,12 @@ export default function Editor() {
   const frameRef = useRef(null);
   const [view, setView] = useState({ w: 0, h: 0 });
 
+  const loadGeneration = useRef(0);
   const load = useCallback(async () => {
+    const generation = ++loadGeneration.current;
     const next = await bridge.getEditorImage();
-    if (!next) return;
+    if (!next || generation !== loadGeneration.current) return;
+    setImg(null);
     setDoc(next);
     setRotation(0); setFlipX(false); setFlipY(false); setCrop(FULL); setRatio('free');
     setAdjust({ brightness: 0, contrast: 0, saturation: 0 }); setSize(null); setStatus(null);
@@ -90,28 +106,25 @@ export default function Editor() {
     original.current = null;
     setFormat(next.targets?.includes(next.ext) ? next.ext : 'png');
     if (next.image) {
-      const image = new Image();
-      image.onload = () => setImg(image);
-      image.src = next.image;
+      try {
+        const image = await decodeEditorImage(next.image);
+        if (generation === loadGeneration.current) setImg(image);
+      } catch (error) { if (generation === loadGeneration.current) setDoc({ error: error.message }); }
     }
   }, []);
-  useEffect(() => { load(); return bridge.onEditorOpen(load); }, [load]);
+  useEffect(() => { load(); const unsubscribe = bridge.onEditorOpen(load); return () => { loadGeneration.current++; unsubscribe(); }; }, [load]);
   useEffect(() => bridge.onEditorProgress((progress) => setBg((b) => (b && b.downloading !== undefined ? { downloading: progress } : b))), []);
 
   // The cut-out replaces the picture; crop, rotation and adjustments stay
   // and apply on top of it. Restore brings the original back.
-  const swapImage = (src) => new Promise((resolve) => {
-    const image = new Image();
-    image.onload = () => { setImg(image); resolve(); };
-    image.src = src;
-  });
+  const swapImage = async (src) => { setImg(await decodeEditorImage(src)); };
   const removeBackground = async () => {
     setBg('working');
     const result = await bridge.removeBackgroundInEditor();
     if (result?.needs) { setBg({ needs: result.needs, size: result.size }); return; }
     if (!result?.image) { setBg({ error: result?.error || 'Could not remove the background' }); return; }
     if (!original.current) original.current = img;
-    await swapImage(result.image);
+    try { await swapImage(result.image); } catch (error) { setBg({ error: error.message }); return; }
     setBg('done');
     if (OPAQUE.includes(format)) setFormat('png');
   };
@@ -127,9 +140,11 @@ export default function Editor() {
     setBg('idle');
   };
 
-  const oriented = useMemo(() => (img ? orient(img, rotation, flipX, flipY) : null), [img, rotation, flipX, flipY]);
+  const oriented = useMemo(() => (img ? orient(img, rotation, flipX, flipY, true) : null), [img, rotation, flipX, flipY]);
+  const swapped = Math.abs(rotation / 90) % 2 === 1;
+  const sourceSize = img ? { w: swapped ? img.naturalHeight : img.naturalWidth, h: swapped ? img.naturalWidth : img.naturalHeight } : { w: 0, h: 0 };
   const activeCrop = cropping ? crop : FULL;
-  const cropPx = oriented ? { w: Math.max(1, Math.round(activeCrop.w * oriented.width)), h: Math.max(1, Math.round(activeCrop.h * oriented.height)) } : { w: 0, h: 0 };
+  const cropPx = oriented ? { w: Math.max(1, Math.round(activeCrop.w * sourceSize.w)), h: Math.max(1, Math.round(activeCrop.h * sourceSize.h)) } : { w: 0, h: 0 };
   const outSize = size || cropPx;
   const filter = `brightness(${1 + adjust.brightness / 100}) contrast(${1 + adjust.contrast / 100}) saturate(${1 + adjust.saturation / 100})`;
 
@@ -167,7 +182,7 @@ export default function Editor() {
   };
   const fitRatio = (box, r) => {
     if (!r || !oriented) return box;
-    const aspect = r * oriented.height / oriented.width; // normalized w/h
+    const aspect = r * sourceSize.h / sourceSize.w; // normalized w/h
     let w = box.w, h = w / aspect;
     if (h > 1) { h = 1; w = h * aspect; }
     if (w > 1) { w = 1; h = w / aspect; }
@@ -205,7 +220,7 @@ export default function Editor() {
     if (north) y0 = clamp(y0 + dy, 0, y1 - MIN_CROP); else y1 = clamp(y1 + dy, y0 + MIN_CROP, 1);
     const r = ratioValue(ratio);
     if (r && oriented) {
-      const aspect = r * oriented.height / oriented.width;
+      const aspect = r * sourceSize.h / sourceSize.w;
       let w = x1 - x0, h = y1 - y0;
       if (w / h > aspect) w = h * aspect; else h = w / aspect;
       // Anchor the opposite corner and keep the box inside the image.
@@ -239,14 +254,16 @@ export default function Editor() {
   const save = async () => {
     if (!oriented) return;
     setStatus({ kind: 'saving', text: 'Saving…' });
-    const sx = Math.round(activeCrop.x * oriented.width), sy = Math.round(activeCrop.y * oriented.height);
+    const sx = Math.round(activeCrop.x * sourceSize.w), sy = Math.round(activeCrop.y * sourceSize.h);
     const out = document.createElement('canvas');
     out.width = outSize.w;
     out.height = outSize.h;
     const ctx = out.getContext('2d');
     ctx.filter = filter;
     ctx.imageSmoothingQuality = 'high';
-    ctx.drawImage(oriented, sx, sy, cropPx.w, cropPx.h, 0, 0, out.width, out.height);
+    const full = orient(img, rotation, flipX, flipY);
+    ctx.drawImage(full, sx, sy, cropPx.w, cropPx.h, 0, 0, out.width, out.height);
+    full.width = full.height = 1;
     const blob = await new Promise((resolve) => out.toBlob(resolve, 'image/png'));
     const result = await bridge.saveEdited(await blob.arrayBuffer(), format);
     if (result?.ok) setStatus({ kind: 'done', text: `Saved ${result.output.split(/[\\/]/).pop()}`, output: result.output });
@@ -260,7 +277,7 @@ export default function Editor() {
     <div className="editor">
       <header className="ed-bar">
         <span className="ed-title">{doc?.name || 'Editor'}</span>
-        {oriented && <span className="ed-dim">{oriented.width} × {oriented.height}</span>}
+        {oriented && <span className="ed-dim">{sourceSize.w} × {sourceSize.h}</span>}
         <span className="ed-spacer" />
         <button className="ed-icon" title="Close" aria-label="Close" onClick={() => bridge.closeEditor()}>
           <Icon d={<><path d="M6 6l12 12" /><path d="M18 6L6 18" /></>} />

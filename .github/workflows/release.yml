@@ -50,6 +50,13 @@ jobs:
       - name: Build
         run: npx vite build
 
+      - name: Windows native checks
+        if: runner.os == 'Windows'
+        run: npm run test:native
+
+      - name: Regression and UI checks
+        run: npm test && npm run test:ui
+
       - name: Package
         run: npx electron-builder --win --publish never
 
@@ -89,6 +96,13 @@ jobs:
 
       # Ad-hoc signed (no Developer ID): users open it the first time with
       # right-click → Open, or System Settings → Privacy & Security.
+      - name: Windows native checks
+        if: runner.os == 'Windows'
+        run: npm run test:native
+
+      - name: Regression and UI checks
+        run: npm test && npm run test:ui
+
       - name: Package
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'

@@ -99,18 +99,19 @@ test('unwritable output reports terminal errors for conversion and background re
   assert.deepEqual(jobs.map((j) => j.status), ['running', 'error', 'running', 'error']);
 });
 
-test('clipboard restores complete text across persistence; private copies remain excluded', () => {
-  let text = 'x'.repeat(6000), written = '', disk = null, privateCopy = false;
+test('clipboard restores complete text across persistence; private copies remain excluded', async (t) => {
+  const dir = temporary(t);
+  let text = 'x'.repeat(6000), written = '', privateCopy = false;
   const clipboard = { has: () => privateCopy, readBuffer: () => Buffer.alloc(0), availableFormats: () => [], readText: () => text, writeText: (s) => { written = s; } };
-  const fakeFs = { readFileSync: () => { if (!disk) throw new Error('empty'); return disk; }, writeFileSync: (_p, s) => { disk = s; } };
   const storage = { isEncryptionAvailable: () => true, encryptString: (s) => Buffer.from(s), decryptString: (b) => b.toString() };
-  const { createClipboardHistory } = load('electron/clipboard.cjs', { fs: fakeFs, electron: { clipboard, safeStorage: storage } }, { setInterval: () => 1, clearInterval() {} });
-  let history = createClipboardHistory({ dir: 'unused', onChange() {} }); history.start(); history.stop();
-  history = createClipboardHistory({ dir: 'unused', onChange() {} });
+  const { createClipboardHistory } = load('electron/clipboard.cjs', { electron: { clipboard, safeStorage: storage } }, { setInterval: () => 1, clearInterval() {} });
+  let history = createClipboardHistory({ dir, onChange() {} }); history.start(); history.stop(); await history.flush();
+  history = createClipboardHistory({ dir, onChange() {} });
   history.copy(history.list()[0].id);
   assert.equal(written, text);
   privateCopy = true; text = 'secret'; history.start(); history.stop();
   assert.equal(history.list().length, 1);
+  await history.flush();
 });
 
 test('helper subscriptions are replayed on restart, including disabled states', async () => {
@@ -135,7 +136,7 @@ test('background inference and deletion serialize; idle release starts after com
   const timers = new Map(); let timerId = 0;
   const pipeline = { clone() { return this; }, ensureAlpha() { return this; }, raw() { return this; }, removeAlpha() { return this; }, resize() { return this; }, extractChannel() { return this; }, png() { return this; }, async toBuffer(options) { return options ? { data: Buffer.from([255, 0, 0, 255]), info: { width: 1, height: 1 } } : Buffer.alloc(1024 * 1024 * 3, 128); } };
   const ort = { Tensor: class {}, InferenceSession: { create: async () => { created++; const priorReleases = released; return { inputNames: ['input'], outputNames: ['output'], async run() { running++; await gate; assert.equal(released, priorReleases); running--; return { output: { data: new Float32Array(1024 * 1024) } }; }, async release() { assert.equal(running, 0); released++; } }; } } };
-  const { createBackgroundRemover } = load('electron/bgremove.cjs', { fs: { ...fs, existsSync: () => true, promises: { rm: async () => { removed++; } } }, sharp: () => pipeline, 'onnxruntime-node': ort }, { setTimeout: (fn) => { timers.set(++timerId, fn); return timerId; }, clearTimeout: (id) => timers.delete(id) });
+  const { createBackgroundRemover } = load('electron/bgremove.cjs', { fs: { ...fs, existsSync: () => true, promises: { rm: async () => { removed++; } } }, sharp: () => pipeline, 'onnxruntime-node': ort, './image-tasks.cjs': { runImageTask: async (task, ...args) => require('../electron/image-operations.cjs')[task](...args) } }, { setTimeout: (fn) => { timers.set(++timerId, fn); return timerId; }, clearTimeout: (id) => timers.delete(id) });
   const remover = createBackgroundRemover({ dir: 'unused', log() {} });
   const one = remover.removeBackground(pipeline, null); const two = remover.removeBackground(pipeline, null);
   await tick(); assert.equal(created, 1); assert.equal(running, 1); assert.equal(timers.size, 0);
@@ -169,4 +170,76 @@ test('sensor installer checks protected staged bytes before extraction', () => {
       assert.equal(parse.status, 0, parse.stderr);
     }
   });
+});
+
+
+test('clipboard change tokens skip encoding unchanged images and retry changed contents', async (t) => {
+  const dir = temporary(t);
+  let token = 1, reads = 0, encode = 0, poll;
+  let privateCopy = false;
+  const image = { isEmpty: () => false, getSize: () => ({ width: 20, height: 20 }),
+    toPNG: () => { encode++; return Buffer.from('image-' + token); },
+    resize() { return this; }, toDataURL: () => 'data:image/png;base64,AA==' };
+  const clipboard = { has: () => privateCopy, readBuffer: () => Buffer.alloc(0), availableFormats: () => ['image/png'],
+    readImage: () => { reads++; return image; } };
+  const { createClipboardHistory } = load('electron/clipboard.cjs', { electron: { clipboard, safeStorage: { isEncryptionAvailable: () => false } } },
+    { setInterval: (fn) => { poll = fn; return 1; }, clearInterval() {} });
+  const history = createClipboardHistory({ dir, onChange() {}, getChangeToken: () => token });
+  history.start();
+  for (let i = 0; i < 10; i++) poll();
+  assert.equal(reads, 1); assert.equal(encode, 1);
+  token++; poll(); assert.equal(reads, 2);
+  privateCopy = true; token++; poll(); assert.equal(reads, 2);
+  privateCopy = false; token++; poll(); assert.equal(reads, 3);
+  history.stop(); await history.flush();
+});
+
+test('atomic persistence coalesces snapshots and flushes the latest value', async (t) => {
+  const file = path.join(temporary(t), 'state.json');
+  const { createWriter } = require('../electron/persistence.cjs');
+  const writer = createWriter(file);
+  for (let i = 0; i < 100; i++) writer.write(JSON.stringify({ i }));
+  await writer.flush();
+  assert.deepEqual(JSON.parse(fs.readFileSync(file)), { i: 99 });
+  assert.equal(fs.existsSync(file + '.tmp'), false);
+});
+
+test('worker pixel math matches expected tensor, mask and alpha values', async () => {
+  const { runImageTask } = require('../electron/image-tasks.cjs');
+  const tensor = await runImageTask('tensor', Uint8Array.from([255, 0, 128]), [0.5, 0.5, 0.5], [1, 1, 1], 1);
+  assert.equal(tensor[0], 0.5); assert.equal(tensor[1], -0.5);
+  assert.ok(Math.abs(tensor[2] - (128 / 255 - 0.5)) < 1e-6);
+  assert.deepEqual([...await runImageTask('mask', Float32Array.from([0, 0.5, 1]), false)], [0, 128, 255]);
+  assert.deepEqual([...await runImageTask('alpha', Uint8Array.from([10, 20, 30, 128]), Uint8Array.from([128]))], [10, 20, 30, 64]);
+  await assert.rejects(runImageTask('unknown'), /not a function/);
+  assert.deepEqual([...await runImageTask('mask', Float32Array.from([1, 1]), false)], [0, 0]);
+});
+
+test('shelf mutations serialize and clear evicts cached icons', async (t) => {
+  const dir = temporary(t), source = path.join(dir, 'source.txt');
+  fs.writeFileSync(source, 'fixture');
+  const { createShelf } = load('electron/shelf.cjs', { electron: { app: { getFileIcon: async () => ({ toDataURL: () => 'icon' }) } } });
+  const shelf = createShelf({ dir, onChange() {} });
+  const add = shelf.add([source, source]);
+  const clear = shelf.clear();
+  await Promise.all([add, clear]); await shelf.flush();
+  assert.equal((await shelf.list()).length, 0);
+  assert.equal(shelf.icon(source), undefined);
+  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(dir, 'shelf.json'))), []);
+});
+
+
+test('battery subscribers detach listeners and ignore promises resolved after cleanup', async () => {
+  const source = fs.readFileSync(path.join(__dirname, '../src/hooks.js'), 'utf8');
+  const body = source.slice(source.indexOf('const batterySubscribers'), source.indexOf('export function useBatteryEvents'));
+  let resolve, attached = 0;
+  const battery = { addEventListener() { attached++; }, removeEventListener() { attached--; } };
+  const navigator = { getBattery: () => new Promise((r) => { resolve = r; }) };
+  const subscribe = new Function('navigator', body + '\nreturn subscribeBattery;')(navigator);
+  const first = subscribe(() => {});
+  first(); resolve(battery); await tick(); assert.equal(attached, 0);
+  const second = subscribe(() => {}), third = subscribe(() => {});
+  resolve(battery); await tick(); assert.equal(attached, 2);
+  second(); assert.equal(attached, 2);
+  third(); assert.equal(attached, 0);
 });

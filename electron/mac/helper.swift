@@ -533,6 +533,10 @@ Brightness.start()
 Privacy.start()
 Bluetooth.start()
 FileDrag.start()
+// Heartbeat lets main fall back to polling if the helper stops reporting.
+Timer.scheduledTimer(withTimeInterval: 0.8, repeats: true) { _ in
+    emit(["type": "clipboard-token", "value": NSPasteboard.general.changeCount])
+}
 
 // stdin on a background thread; commands run on the main thread. When the
 // app closes the pipe, the helper exits.

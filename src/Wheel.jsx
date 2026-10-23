@@ -1,3 +1,4 @@
+import './wheel.css';
 import { useEffect, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { bridge } from './bridge.js';

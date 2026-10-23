@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { bridge } from './bridge.js';
-import { getLevel, useLoudness } from './beat.js';
+import { getLevel, useLoudness, useAnimationVisible } from './beat.js';
 import { SPRING_SOFT } from './motion.js';
 
 // Seconds into the track right now. SMTC positions are snapshots; extrapolate
@@ -93,6 +93,14 @@ const clamp01 = (v) => Math.min(1, Math.max(0, v));
 //        120 ms and settling over 350 ms after it's done
 //   --h  how long the word is held (0 short … 1 long); longer holds swell more
 //   --g  glow: only held words bloom, fading half a second after they end
+const painted = new WeakMap();
+function setWordStyle(el, name, value) {
+  let previous = painted.get(el);
+  if (!previous) { previous = {}; painted.set(el, previous); }
+  if (previous[name] === value) return;
+  previous[name] = value;
+  el.style.setProperty(name, value);
+}
 function paintWords(elements, words, position) {
   let active = -1;
   for (let i = 0; i < words.length; i++) {
@@ -107,13 +115,13 @@ function paintWords(elements, words, position) {
       : position <= w.end ? easeInOut(clamp01((position - w.start) / 0.18))
       : 1 - easeInOut(clamp01((position - w.end) / 0.45));
     const glow = position < w.start ? 0 : position <= w.end ? p : clamp01(1 - (position - w.end) / 0.6);
-    el.style.setProperty('--p', p.toFixed(3));
+    setWordStyle(el, '--p', p.toFixed(3));
     // Louder passages push the swell a little and the glow more.
     const loudness = getLevel();
     const energy = 0.55 + loudness * 0.7;
-    el.style.setProperty('--a', (hold * (0.8 + loudness * 0.3)).toFixed(3));
-    el.style.setProperty('--h', held.toFixed(3));
-    el.style.setProperty('--g', Math.min(1, held * glow * energy).toFixed(3));
+    setWordStyle(el, '--a', (hold * (0.8 + loudness * 0.3)).toFixed(3));
+    setWordStyle(el, '--h', held.toFixed(3));
+    setWordStyle(el, '--g', Math.min(1, held * glow * energy).toFixed(3));
     if (p > 0) active = i;
   }
   return active;
@@ -125,10 +133,12 @@ const LEAD_IN = 0.08;
 
 // Calls onFrame(position) every animation frame while playing, once otherwise.
 function useLyricClock(media, seekedTo, onFrame) {
-  useLoudness();
+  const visible = useAnimationVisible();
+  useLoudness(visible && !!media?.playing);
   const latest = useRef({ media, seekedTo, onFrame });
   latest.current = { media, seekedTo, onFrame };
   useEffect(() => {
+    if (!visible) return undefined;
     let frame = 0;
     const tick = () => {
       const { media: m, seekedTo: s, onFrame: f } = latest.current;
@@ -139,7 +149,7 @@ function useLyricClock(media, seekedTo, onFrame) {
     };
     tick();
     return () => cancelAnimationFrame(frame);
-  }, [media?.playing, media?.positionAt, seekedTo]);
+  }, [visible, media?.playing, media?.positionAt, seekedTo]);
 }
 
 function Dots({ dotsRef }) {

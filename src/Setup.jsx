@@ -1,3 +1,4 @@
+import './wheel.css';
 import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
 import { bridge, IS_MAC } from './bridge.js';

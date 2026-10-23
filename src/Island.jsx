@@ -1,3 +1,5 @@
+import './dashboard.css';
+import './lyrics.css';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { bridge, IS_MAC } from './bridge.js';
@@ -8,7 +10,7 @@ import { CONTENT, PRESS, SPRING_ISLAND, SPRING_SNAPPY, tabMotion } from './motio
 import { Artwork, Bars, ClipboardTab, ShelfTab, StatsTab, TimerTab } from './Tabs.jsx';
 import { BluetoothTab, DashboardTab, MixerTab, MusicTab } from './Dashboard.jsx';
 import { useHoverPassthrough } from './useHoverPassthrough.js';
-import { setBeatSensitivity, useBeatVars } from './beat.js';
+import { AnimationVisibility, setBeatSensitivity, useBeatVars } from './beat.js';
 import { useMedia } from './useMedia.js';
 import {
   formatCountdown, playChime, useActivities, useArtColors, useClock, useBattery, useBatteryEvents, useBluetoothDevices, useClipboard,
@@ -308,11 +310,12 @@ export default function Island() {
   const glowing = edgeGlow !== 'off' && artColors && media?.playing && state !== 'panel';
   // The glow and the Music tab's gradient breathe with the music (beat.js
   // writes --beat on the island each frame).
-  useBeatVars(islandRef, !!media?.playing && (glowing || (state === 'panel' && (activeTab === 'music' || activeTab === 'dashboard'))));
+  useBeatVars(islandRef, (!covered || panelOpen) && !!media?.playing && (glowing || (state === 'panel' && (activeTab === 'music' || activeTab === 'dashboard'))));
   useEffect(() => setBeatSensitivity(config.glowSensitivity ?? 0.5), [config.glowSensitivity]);
   const style = artColors ? { '--accent': artColors[0], '--accent-2': artColors[1] } : undefined;
 
   return (
+    <AnimationVisibility.Provider value={!covered || panelOpen}>
     <div className={`stage edge-${edge}${dock.dragging ? ' is-dragging' : ''}`} style={{ zoom: config.scale }}>
       <div className="dock-anchor" style={anchorStyle}>
       <motion.div
@@ -406,6 +409,7 @@ export default function Island() {
       </AnimatePresence>
       </div>
     </div>
+    </AnimationVisibility.Provider>
   );
 }
 

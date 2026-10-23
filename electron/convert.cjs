@@ -92,6 +92,7 @@ function tempDir() {
 
 // ── Images ────────────────────────────────────────────────────────────────
 
+const { runImageTask } = require('./image-tasks.cjs');
 const { decodeImage } = require('./image-decode.cjs');
 
 function encodeBmp({ width, height, data }) {
@@ -187,10 +188,9 @@ async function saveImage(input, ext, out) {
 }
 
 // Flattened PNG for the editor (Chromium can't show PSD, TIFF, ICO…).
-async function previewImage(file) {
-  const input = await loadImage(file);
-  const png = await input.rotate().png().toBuffer();
-  return `data:image/png;base64,${png.toString('base64')}`;
+async function previewImage(file, binary = false) {
+  const png = Buffer.from(await runImageTask('preview', file));
+  return binary ? png : `data:image/png;base64,${png.toString('base64')}`;
 }
 
 // ── Documents ─────────────────────────────────────────────────────────────
@@ -549,7 +549,7 @@ function createConverter({ dir, log, renderPdf, onJob, getSettings, onModelStatu
     let out;
     try {
       out = freePath(path.dirname(file), path.basename(file, path.extname(file)) + ' (no background)', 'png');
-      await remover.removeBackground((await loadImage(file)).rotate(), out, (progress) => report({ progress }));
+      await remover.removeBackground(require('sharp')(Buffer.from(await runImageTask('preview', file))), out, (progress) => report({ progress }));
       report({ status: 'done', progress: 1, output: out });
       return out;
     } catch (error) {
@@ -561,9 +561,9 @@ function createConverter({ dir, log, renderPdf, onJob, getSettings, onModelStatu
   }
 
   // The editor's Remove background: the cut-out as a PNG data URL.
-  async function removeBackgroundImage(file) {
-    const png = await remover.removeBackground((await loadImage(file)).rotate(), null);
-    return `data:image/png;base64,${png.toString('base64')}`;
+  async function removeBackgroundImage(file, binary = false) {
+    const png = await remover.removeBackground(require('sharp')(Buffer.from(await runImageTask('preview', file))), null);
+    return binary ? png : `data:image/png;base64,${png.toString('base64')}`;
   }
 
   function downloadEngine(name, onProgress) {
@@ -586,7 +586,7 @@ function createConverter({ dir, log, renderPdf, onJob, getSettings, onModelStatu
     try {
       out = outputFor(file, target);
       if (engine === 'image') {
-        await saveImage((await loadImage(file)).rotate(), target, out);
+        await runImageTask('convert', file, target, out);
       } else if (engine === 'ffmpeg') {
         const exe = ffmpeg();
         if (!exe) throw new Error('ffmpeg is not installed');
@@ -629,7 +629,7 @@ function createConverter({ dir, log, renderPdf, onJob, getSettings, onModelStatu
     const job = { id: nextId++, name: path.basename(file), target: target.toUpperCase(), status: 'running', progress: 0 };
     onJob({ ...job });
     try {
-      await saveImage(sharp(png), target, out);
+      await runImageTask('save', png, target, out);
       onJob({ ...job, status: 'done', progress: 1, output: out });
       return out;
     } catch (error) {
@@ -661,4 +661,4 @@ function createConverter({ dir, log, renderPdf, onJob, getSettings, onModelStatu
 // Every extension the wheel opens on, aliases included (for the helper's filter).
 const EXTENSIONS = [...Object.values(KINDS).flat(), ...Object.keys(EXT_ALIASES)];
 
-module.exports = { createConverter, kindOf, extOf, outputFor, TARGETS, EXTENSIONS };
+module.exports = { loadImage, saveImage, createConverter, kindOf, extOf, outputFor, TARGETS, EXTENSIONS };

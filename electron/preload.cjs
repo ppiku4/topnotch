@@ -9,6 +9,7 @@ function subscribe(channel, callback) {
 // Explicit methods only: the renderer never gets a raw send/invoke.
 contextBridge.exposeInMainWorld('topnotch', {
   platform: process.platform,
+  rendererReady: () => ipcRenderer.send('renderer-ready'),
   setPassthrough: (passthrough) => ipcRenderer.send('set-passthrough', !!passthrough),
 
   mediaControl: (action) => ipcRenderer.send('media-control', action),

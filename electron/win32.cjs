@@ -2,6 +2,7 @@ const koffi = require('koffi');
 
 const user32 = koffi.load('user32.dll');
 const keybd_event = user32.func('void __stdcall keybd_event(uint8_t bVk, uint8_t bScan, uint32_t dwFlags, uintptr_t dwExtraInfo)');
+const clipboardChangeToken = user32.func('uint32_t __stdcall GetClipboardSequenceNumber()');
 const GetAsyncKeyState = user32.func('int16_t __stdcall GetAsyncKeyState(int vKey)');
 
 const KEYEVENTF_EXTENDEDKEY = 0x1;
@@ -106,4 +107,4 @@ function forceForeground(win) {
   }
 }
 
-module.exports = { pressMediaKey, isLeftButtonDown, isKeyDown, forceForeground, maximizedForegroundRect, setAcrylic, setRoundedCorners };
+module.exports = { clipboardChangeToken, pressMediaKey, isLeftButtonDown, isKeyDown, forceForeground, maximizedForegroundRect, setAcrylic, setRoundedCorners };

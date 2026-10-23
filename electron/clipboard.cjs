@@ -3,7 +3,9 @@ const path = require('path');
 const crypto = require('crypto');
 const { clipboard, nativeImage, safeStorage } = require('electron');
 
+const { createWriter } = require('./persistence.cjs');
 const MAX_ITEMS = 30;
+const MAX_BYTES = 64 * 1024 * 1024;
 const POLL_MS = 800;
 
 // Copies apps mark as private: password managers (KeePass, Bitwarden,
@@ -44,7 +46,7 @@ function decode(text) {
 // Polls the system clipboard and keeps a short history. Text survives
 // restarts (clipboard.json, encrypted); images live in memory only.
 // Copies marked private are never recorded.
-function createClipboardHistory({ dir, onChange }) {
+function createClipboardHistory({ dir, onChange, getChangeToken = () => null }) {
   const file = path.join(dir, 'clipboard.json');
   let items = [];
   try { items = decode(fs.readFileSync(file, 'utf8')).filter((i) => i.type === 'text'); } catch (_) {}
@@ -52,13 +54,24 @@ function createClipboardHistory({ dir, onChange }) {
   let lastKey = null;
   let timer = null;
 
-  const save = () => {
-    try { fs.writeFileSync(file, encode(JSON.stringify(items.filter((i) => i.type === 'text')))); } catch (_) {}
-  };
-  const publish = () => { save(); onChange(list()); };
+  const writer = createWriter(file, encode);
+  const publish = () => { writer.write(JSON.stringify(items.filter((i) => i.type === 'text'))); onChange(list()); };
+  let lastToken = null;
+  const sizeOf = (item) => Buffer.byteLength(item.text || '') + Buffer.byteLength(item.thumb || '') + (images.get(item.id)?.length || 0);
+  function trim() {
+    let bytes = items.reduce((sum, item) => sum + sizeOf(item), 0);
+    // Existing pins are preserved. New entries cannot displace them once
+    // they consume the budget; large entries are skipped, never truncated.
+    while (items.length > MAX_ITEMS || bytes > MAX_BYTES) {
+      const index = items.map((i) => i.pinned).lastIndexOf(false);
+      if (index < 0) break;
+      const item = items[index]; bytes -= sizeOf(item);
+      items.splice(index, 1); images.delete(item.id);
+    }
+  }
   const list = () => items.map(({ id, type, text, thumb, time, pinned }) => ({ id, type, text, thumb, time, pinned }));
 
-  function add(item, key) {
+  function add(item, key, png) {
     const existing = items.findIndex((i) => i.key === key);
     if (existing >= 0) {
       const [old] = items.splice(existing, 1);
@@ -66,34 +79,37 @@ function createClipboardHistory({ dir, onChange }) {
     } else {
       items.unshift({ ...item, key, id: crypto.randomUUID(), time: Date.now(), pinned: false });
     }
-    // Pinned items never fall off the end.
-    while (items.length > MAX_ITEMS) {
-      const index = items.map((i) => i.pinned).lastIndexOf(false);
-      if (index < 0) break;
-      const [removed] = items.splice(index, 1);
-      images.delete(removed.id);
-    }
+    if (png) images.set(items[0].id, png);
+    trim();
     publish();
   }
 
   function poll() {
-    if (isPrivateCopy()) return;
+    let token = null;
+    try { token = getChangeToken(); } catch (_) {}
+    if (token != null && token !== 0 && token === lastToken) return;
+    if (isPrivateCopy()) { lastToken = token; return; }
+    // Commit only after a successful read; a busy clipboard is retried.
+    const remember = () => { lastToken = token; };
     const formats = clipboard.availableFormats();
     if (formats.some((f) => f.startsWith('image/'))) {
       const image = clipboard.readImage();
       if (image.isEmpty()) return;
+      const size = image.getSize();
+      if (size.width * size.height * 4 > MAX_BYTES) { remember(); return; }
       const png = image.toPNG();
+      remember();
+      if (png.length > MAX_BYTES) return;
       const key = 'img:' + crypto.createHash('sha1').update(png).digest('hex');
       if (key === lastKey) return;
       lastKey = key;
-      const size = image.getSize();
       const thumb = image.resize(size.width > size.height ? { width: 160 } : { height: 100 }).toDataURL();
-      add({ type: 'image', text: `${size.width}×${size.height}`, thumb }, key);
-      const item = items.find((i) => i.key === key);
-      if (item) images.set(item.id, png);
+      add({ type: 'image', text: `${size.width}x${size.height}`, thumb }, key, png);
       return;
     }
     const text = clipboard.readText();
+    remember();
+    if (Buffer.byteLength(text) > MAX_BYTES) return;
     if (!text || !text.trim()) return;
     const key = 'txt:' + crypto.createHash('sha1').update(text).digest('hex');
     if (key === lastKey) return;
@@ -102,9 +118,10 @@ function createClipboardHistory({ dir, onChange }) {
   }
 
   return {
-    start() { if (!timer) { lastKey = null; poll(); timer = setInterval(() => { try { poll(); } catch (_) {} }, POLL_MS); } },
+    start() { if (!timer) { lastKey = null; lastToken = null; poll(); timer = setInterval(() => { try { poll(); } catch (_) {} }, POLL_MS); } },
     stop() { clearInterval(timer); timer = null; },
     list,
+    flush: writer.flush,
     copy(id) {
       const item = items.find((i) => i.id === id);
       if (!item) return;
@@ -120,7 +137,7 @@ function createClipboardHistory({ dir, onChange }) {
     },
     togglePin(id) {
       const item = items.find((i) => i.id === id);
-      if (item) { item.pinned = !item.pinned; publish(); }
+      if (item) { item.pinned = !item.pinned; trim(); publish(); }
     },
     remove(id) {
       items = items.filter((i) => i.id !== id);

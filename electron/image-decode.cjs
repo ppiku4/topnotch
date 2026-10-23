@@ -1,6 +1,6 @@
 const { Worker, isMainThread, parentPort, workerData } = require('worker_threads');
 
-if (!isMainThread) {
+if (!isMainThread && workerData?.ext) {
   try {
     const { decodeDib, decodeIco } = require('./image-codecs.cjs');
     const buf = Buffer.from(workerData.bytes);

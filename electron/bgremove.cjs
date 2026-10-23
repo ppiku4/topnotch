@@ -4,6 +4,7 @@
 // so each is downloaded only when the user asks, checked against a pinned
 // SHA-256.
 const fs = require('fs');
+const { runImageTask } = require('./image-tasks.cjs');
 const path = require('path');
 const { downloadVerified } = require('./download.cjs');
 
@@ -198,15 +199,7 @@ function createBackgroundRemover({ dir, log, getSettings = () => ({}), onStatus 
     // then (x - mean) / std per channel, as a 1×3×1024×1024 planar tensor.
     const small = await sharp(rgba, { raw: { width, height, channels: 4 } })
       .removeAlpha().resize(INPUT, INPUT, { fit: 'fill', kernel: 'lanczos3' }).raw().toBuffer();
-    let max = 1;
-    for (let i = 0; i < small.length; i++) if (small[i] > max) max = small[i];
-    const plane = INPUT * INPUT;
-    const tensor = new Float32Array(plane * 3);
-    for (let c = 0; c < 3; c++) {
-      const mean = model.mean[c];
-      const std = model.std[c];
-      for (let i = 0; i < plane; i++) tensor[c * plane + i] = (small[i * 3 + c] / max - mean) / std;
-    }
+    const tensor = await runImageTask('tensor', small, model.mean, model.std, INPUT);
     onProgress?.(0.25);
 
     const net = await getSession(id);
@@ -215,22 +208,12 @@ function createBackgroundRemover({ dir, log, getSettings = () => ({}), onStatus 
     const prediction = results[net.outputNames[0]].data;
     onProgress?.(0.85);
 
-    const values = new Float32Array(plane);
-    let lo = Infinity, hi = -Infinity;
-    for (let i = 0; i < plane; i++) {
-      const v = model.sigmoid ? 1 / (1 + Math.exp(-prediction[i])) : prediction[i];
-      values[i] = v;
-      if (v < lo) lo = v;
-      if (v > hi) hi = v;
-    }
-    const range = hi - lo || 1;
-    const mask = Buffer.alloc(plane);
-    for (let i = 0; i < plane; i++) mask[i] = Math.round(((values[i] - lo) / range) * 255);
+    const mask = Buffer.from(await runImageTask('mask', prediction, model.sigmoid));
 
     const alpha = await sharp(mask, { raw: { width: INPUT, height: INPUT, channels: 1 } })
       .resize(width, height, { fit: 'fill', kernel: 'lanczos3' }).extractChannel(0).raw().toBuffer();
-    for (let i = 0; i < width * height; i++) rgba[i * 4 + 3] = Math.round((rgba[i * 4 + 3] * alpha[i]) / 255);
-    const png = sharp(rgba, { raw: { width, height, channels: 4 } }).png();
+    const composited = Buffer.from(await runImageTask('alpha', rgba, alpha));
+    const png = sharp(composited, { raw: { width, height, channels: 4 } }).png();
     onProgress?.(1);
     if (!out) return png.toBuffer();
     await png.toFile(out);
