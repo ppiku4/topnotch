@@ -22,6 +22,8 @@ import {
 const SIZES = {
   idle: { width: 190, height: 32, borderRadius: 16 },
   compact: { width: 290, height: 36, borderRadius: 18 },
+  // Timer alone (no music): ring + countdown only, so a narrower pill.
+  timer: { width: 100, height: 36, borderRadius: 18 },
   lyrics: { width: 460, height: 38, borderRadius: 19 },
   activity: { width: 340, height: 48, borderRadius: 24 },
   panel: { width: 660, height: 300, borderRadius: 34 },
@@ -31,7 +33,7 @@ const SIZES = {
   vCompact: { width: 40, height: 200, borderRadius: 20 }
 };
 const GLASS_RADIUS = 8;
-const SQUARED_RADIUS = { idle: 8, info: 8, compact: 9, lyrics: 10, activity: 12, panel: 16, vIdle: 8, vInfo: 9, vCompact: 9 };
+const SQUARED_RADIUS = { idle: 8, info: 8, compact: 9, timer: 9, lyrics: 10, activity: 12, panel: 16, vIdle: 8, vInfo: 9, vCompact: 9 };
 // Pointer travel (px) before a press on the island turns into a drag.
 const DRAG_THRESHOLD = 6;
 const isVerticalEdge = (edge) => edge === 'left' || edge === 'right';
@@ -214,11 +216,14 @@ export default function Island() {
   // panel and live activities keep their horizontal shape.
   const vertical = isVerticalEdge(edge) && (state === 'idle' || state === 'info' || state === 'compact');
   const size = vertical ? (state === 'compact' ? 'vCompact' : state === 'info' ? 'vInfo' : 'vIdle')
-    : state === 'compact' && pillLyrics ? 'lyrics' : compactInfo ? 'compactInfo' : state;
+    : state === 'compact' && pillLyrics ? 'lyrics' : compactInfo ? 'compactInfo'
+    : state === 'compact' && pillTimer && !media?.playing && !privacy.call ? 'timer' : state;
   const squared = config.corners === 'squared';
   const floatGlass = glass && !!dock.floating;
   const shape = {
     ...SIZES[size],
+    // Room for an hours digit and the camera/mic dots.
+    ...(size === 'timer' ? { width: SIZES.timer.width + (timerState.remaining >= 3600000 ? 20 : 0) + (privacyActive ? 28 : 0) } : null),
     ...(size === 'lyrics' ? { width: Math.round(Math.min(PILL_MAX, Math.max(PILL_MIN, pillTextWidth + PILL_CHROME))) } : null),
     ...(size === 'compactInfo' ? { ...SIZES.compact, width: Math.round(Math.min(PILL_MAX, Math.max(PILL_MIN, infoWidth + PILL_CHROME))), ...(squared ? { borderRadius: SQUARED_RADIUS.compact } : null) } : null),
     ...(size === 'info' ? { width: Math.round(Math.min(INFO_MAX, Math.max(INFO_MIN, infoWidth + INFO_PADDING))), height: 32, borderRadius: squared ? SQUARED_RADIUS.info : 16 } : null),
