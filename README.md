@@ -24,6 +24,10 @@ A free, open-source notch at the top of your screen that shows what's playing wi
 
 <br /><br />
 
+https://github.com/user-attachments/assets/48653e99-93b3-4b6f-b3c1-3942deefd248
+
+<br />
+
 <img src="docs/screenshots/pill-lyrics.png" alt="TopNotch pill at the top of the screen showing the current lyric line, album art and audio bars" width="460" />
 
 <br />
