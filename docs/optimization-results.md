@@ -32,3 +32,9 @@ The unchanged-image regression performs an initial clipboard poll plus ten uncha
 An optional smoke-test measurement mode is available by setting `TOPNOTCH_BENCHMARK=1` when running `npm run test:ui`. It reports page-ready times and Electron process metrics. Single local samples before/after splitting were roughly 85-100 ms versus 101-114 ms for ordinary screens (wheel includes an explicit 200 ms fixture delay). These samples do not establish a startup improvement. Chromium's rounded heap values and process metrics from different fixture workloads are not suitable for claiming a memory/CPU percentage reduction.
 
 macOS runtime behavior, GPU inference, all four real AI models, sustained idle CPU/battery use and a complete installer build were not verified here. Packaged-worker behavior was verified with the ASAR fixture. Existing pins are deliberately exempt from destructive budget eviction. Full-resolution source pixels remain resident in the editor so exports retain quality.
+
+## Native tests on CI hosts without audio hardware
+
+The CI workflows set `TOPNOTCH_ALLOW_MISSING_AUDIO=1` for native checks. This accepts only `audio endpoint:` / `mixer:` errors containing HRESULT `0x80070490`, and logs them separately as unavailable hardware. Local runs remain strict by default. Helper readiness, clean exit, timeout checks and unrelated errors remain mandatory.
+
+The restart check always requires second-generation network/stats events. It skips the peak assertion only when the restarted helper itself reports the known missing-endpoint error; first-generation errors or a mixer-only failure cannot waive that assertion. Unexpected helper exits still fail. Regression fixtures cover strict mode, unavailable hardware, unrelated errors, missing readiness, nonzero exits, timeouts and restart subscription requirements.

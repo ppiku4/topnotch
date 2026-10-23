@@ -243,3 +243,70 @@ test('battery subscribers detach listeners and ignore promises resolved after cl
   second(); assert.equal(attached, 2);
   third(); assert.equal(attached, 0);
 });
+
+
+test('native CI audio exception is opt-in and restricted to missing endpoint/mixer HRESULT', () => {
+  const { isMissingAudio } = require('./native-capabilities.cjs');
+  const endpoint = 'audio endpoint: Element not found. (Exception from HRESULT: 0x80070490)';
+  assert.equal(isMissingAudio(endpoint, false), false);
+  assert.equal(isMissingAudio(endpoint, true), true);
+  assert.equal(isMissingAudio('[system-helper] mixer: Element not found. (Exception from HRESULT: 0x80070490)', true), true);
+  for (const error of ['audio endpoint: Access denied 0x80070005', 'net: Element not found 0x80070490', 'audio endpoint: Element not found', 'compiler failed']) {
+    assert.equal(isMissingAudio(error, true), false);
+  }
+});
+
+test('native smoke permits known hardware absence only in opt-in mode and preserves failures', () => {
+  const { isMissingAudio } = require('./native-capabilities.cjs');
+  function run({ allow = true, error = 'audio endpoint: Element not found 0x80070490', ready = true, code = 0, timeout = false } = {}) {
+    const child = new EventEmitter(); child.stdout = new EventEmitter(); child.stderr = new EventEmitter();
+    child.stdin = { write() {}, end() {} }; child.kill = () => {};
+    const timers = new Map(), messages = [], state = { exitCode: 0 };
+    load('tests/native-smoke.cjs', { child_process: { spawn: () => child }, './native-capabilities.cjs': { isMissingAudio: (m) => isMissingAudio(m, allow) } }, {
+      process: state, console: { log: (m) => messages.push(JSON.parse(m)), error() {} },
+      setTimeout: (fn, ms) => { timers.set(ms, fn); return ms; }, clearTimeout: (id) => timers.delete(id)
+    });
+    if (error) child.stdout.emit('data', JSON.stringify({ type: 'error', message: error }) + '\n');
+    if (ready) child.stdout.emit('data', '{"type":"ready"}\n');
+    if (timeout) timers.get(25000)();
+    child.emit('exit', code);
+    return { code: state.exitCode, report: messages.at(-1) };
+  }
+  assert.equal(run().report.nativeSmoke, 'passed-without-audio');
+  assert.equal(run().code, 0);
+  assert.equal(run({ error: null }).report.nativeSmoke, 'passed');
+  for (const options of [{ allow: false }, { error: 'net: broken' }, { ready: false }, { code: 1 }, { code: null }, { timeout: true }]) {
+    assert.equal(run(options).code, 1);
+    assert.equal(run(options).report.nativeSmoke, 'failed');
+  }
+});
+
+test('restart smoke requires second-generation stats and either peaks or fresh missing-endpoint evidence', () => {
+  const { isMissingAudio } = require('./native-capabilities.cjs');
+  function run({ allow = true, missing = true, peak = false, net = true, unexpected = false, firstOnly = false } = {}) {
+    let callbacks, timeout, stopped = false;
+    const reports = [], state = { exitCode: 0 };
+    const service = { setStats() {}, setMeter() {}, restart() {}, stop() { stopped = true; } };
+    load('tests/native-restart-smoke.cjs', {
+      '../electron/system-service.cjs': { createSystemService: (options) => { callbacks = options; return service; } },
+      './native-capabilities.cjs': { isMissingAudio: (m) => isMissingAudio(m, allow) }
+    }, { process: state, console: { log: (m) => reports.push(JSON.parse(m)) }, setTimeout: (fn) => { timeout = fn; return 1; }, clearTimeout() {} });
+    const unavailable = '[system-helper] audio endpoint: Element not found 0x80070490';
+    if (firstOnly) callbacks.log(unavailable);
+    callbacks.onEvent({ type: 'ready' }); callbacks.onEvent({ type: 'net' });
+    callbacks.log('[system-helper] exited with null, restarting in 1000ms');
+    if (unexpected) callbacks.log('[system-helper] exited with 1, restarting in 1000ms');
+    if (missing) callbacks.log(unavailable);
+    callbacks.onEvent({ type: 'ready' });
+    if (net) callbacks.onEvent({ type: 'net' });
+    if (peak) callbacks.onEvent({ type: 'peak' });
+    if (!stopped) timeout();
+    return { code: state.exitCode, report: reports.at(-1) };
+  }
+  assert.equal(run().report.restartSmoke, 'passed-without-audio');
+  assert.equal(run().code, 0);
+  assert.equal(run({ missing: false, peak: true }).report.restartSmoke, 'passed');
+  for (const options of [{ allow: false }, { missing: false }, { net: false }, { unexpected: true }, { missing: false, firstOnly: true }]) {
+    assert.equal(run(options).code, 1);
+  }
+});

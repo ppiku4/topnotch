@@ -52,6 +52,8 @@ jobs:
 
       - name: Windows native checks
         if: runner.os == 'Windows'
+        env:
+          TOPNOTCH_ALLOW_MISSING_AUDIO: '1'
         run: npm run test:native
 
       - name: Regression and UI checks
@@ -98,6 +100,8 @@ jobs:
       # right-click → Open, or System Settings → Privacy & Security.
       - name: Windows native checks
         if: runner.os == 'Windows'
+        env:
+          TOPNOTCH_ALLOW_MISSING_AUDIO: '1'
         run: npm run test:native
 
       - name: Regression and UI checks

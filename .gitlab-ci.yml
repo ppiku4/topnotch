@@ -38,6 +38,7 @@ windows:
       if ($LASTEXITCODE -ne 0) { throw 'Regression tests failed' }
       npm.cmd run test:ui
       if ($LASTEXITCODE -ne 0) { throw 'UI tests failed' }
+      $env:TOPNOTCH_ALLOW_MISSING_AUDIO = '1'
       npm.cmd run test:native
       if ($LASTEXITCODE -ne 0) { throw 'Native tests failed' }
       npx.cmd --no-install electron-builder --win --publish never
