@@ -1,3 +1,4 @@
+import './info-row.css';
 import { useLayoutEffect, useRef } from 'react';
 import { useClock } from './hooks.js';
 import { WeatherIcon } from './icons.jsx';
