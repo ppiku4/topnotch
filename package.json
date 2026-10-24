@@ -1,7 +1,7 @@
 {
   "name": "topnotch",
   "productName": "TopNotch",
-  "version": "0.1.17",
+  "version": "0.1.18",
   "description": "Free Dynamic Island for Windows and macOS: now playing with synced lyrics, volume mixer, Bluetooth, clipboard history, focus timer, system stats, file shelf and a file converter with AI background removal.",
   "license": "MIT",
   "author": "TopNotch contributors",
