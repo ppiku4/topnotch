@@ -32,6 +32,8 @@ windows:
       if ($env:CI_COMMIT_TAG -and $env:CI_COMMIT_TAG -ne "v$version") { throw 'Release tag must match package.json version' }
       npm.cmd ci --no-audit --no-fund
       if ($LASTEXITCODE -ne 0) { throw 'npm ci failed' }
+      npm.cmd run build:win-helper
+      if ($LASTEXITCODE -ne 0) { throw 'System helper build failed' }
       npm.cmd run build
       if ($LASTEXITCODE -ne 0) { throw 'Build failed' }
       npm.cmd test

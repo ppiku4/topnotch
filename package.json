@@ -22,8 +22,10 @@
     "dev": "concurrently -k -n vite,electron \"vite\" \"wait-on tcp:127.0.0.1:5173 && cross-env TOPNOTCH_DEV=1 electron .\"",
     "build": "vite build",
     "start": "vite build && electron .",
-    "dist": "vite build && electron-builder --win",
-    "dist:dir": "vite build && electron-builder --win --dir"
+    "build:win-helper": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-win-helper.ps1",
+    "memprobe": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/memprobe.ps1",
+    "dist": "npm run build:win-helper && vite build && electron-builder --win",
+    "dist:dir": "npm run build:win-helper && vite build && electron-builder --win --dir"
   },
   "dependencies": {
     "@coooookies/windows-smtc-monitor": "^1.0.12",
@@ -104,6 +106,12 @@
         "!node_modules/onnxruntime-node/bin/napi-v6/win32/arm64/**",
         "!node_modules/onnxruntime-node/bin/napi-v6/win32/x64/{dxcompiler,dxil}.dll",
         "!electron/mac/**"
+      ],
+      "extraResources": [
+        {
+          "from": "build/win/topnotch-helper.exe",
+          "to": "topnotch-helper.exe"
+        }
       ]
     },
     "nsis": {

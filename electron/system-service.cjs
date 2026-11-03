@@ -4,7 +4,7 @@ const { spawn } = require('child_process');
 const readline = require('readline');
 
 // Owns the long-lived native helper and turns its JSON lines into level
-// updates: system-helper.cs (compiled by PowerShell) on Windows, the Swift
+// updates: system-helper.cs (precompiled exe, or PowerShell) on Windows, the Swift
 // topnotch-helper binary on macOS. Restarts the helper if it exits.
 function createSystemService({ onLevels, onEvent = () => {}, log = console.log }) {
   const levels = { volume: null, muted: false, brightness: null, brightnessSupported: false };
@@ -21,8 +21,17 @@ function createSystemService({ onLevels, onEvent = () => {}, log = console.log }
       const exe = packaged && fs.existsSync(packaged) ? packaged : path.join(__dirname, '..', 'build', 'mac', 'topnotch-helper');
       return spawn(exe, [], { stdio: ['pipe', 'pipe', 'pipe'] });
     }
-    // Packaged builds keep the helper outside the ASAR (asarUnpack) because
-    // PowerShell can't read files inside it.
+    // Precompiled helper (scripts/build-win-helper.ps1): packaged in
+    // resources/, dev in build/win/. Saves the PowerShell host and the
+    // compile on every launch. TOPNOTCH_HELPER=powershell forces the old path.
+    if (process.env.TOPNOTCH_HELPER !== 'powershell') {
+      const packaged = process.resourcesPath && path.join(process.resourcesPath, 'topnotch-helper.exe');
+      const dev = path.join(__dirname, '..', 'build', 'win', 'topnotch-helper.exe');
+      const exe = [packaged, dev].find((file) => file && fs.existsSync(file));
+      if (exe) return spawn(exe, [], { windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
+    }
+    // Fallback: compile the source with PowerShell. Packaged builds keep it
+    // outside the ASAR (asarUnpack) because PowerShell can't read files inside it.
     const dir = __dirname.replace(/app\.asar([\\/]|$)/, 'app.asar.unpacked$1');
     return spawn('powershell.exe', [
       '-NoProfile', '-NonInteractive', '-MTA', '-ExecutionPolicy', 'Bypass',
@@ -70,7 +79,7 @@ function createSystemService({ onLevels, onEvent = () => {}, log = console.log }
       levels.brightness = msg.supported ? msg.value : null;
       levels.brightnessSupported = msg.supported;
       onLevels({ ...levels }, changed ? 'brightness' : null);
-    } else if (msg.type === 'privacy' || msg.type === 'net' || msg.type === 'bluetooth' || msg.type === 'timeline' || msg.type === 'mixer' || msg.type === 'peak' || msg.type === 'file-click' || msg.type === 'file-drag') {
+    } else if (msg.type === 'privacy' || msg.type === 'net' || msg.type === 'bluetooth' || msg.type === 'timeline' || msg.type === 'media' || msg.type === 'mixer' || msg.type === 'peak' || msg.type === 'file-click' || msg.type === 'file-drag') {
       onEvent(msg);
     }
   }

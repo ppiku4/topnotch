@@ -261,7 +261,7 @@ test('native smoke permits known hardware absence only in opt-in mode and preser
   function run({ allow = true, error = 'audio endpoint: Element not found 0x80070490', ready = true, code = 0, timeout = false } = {}) {
     const child = new EventEmitter(); child.stdout = new EventEmitter(); child.stderr = new EventEmitter();
     child.stdin = { write() {}, end() {} }; child.kill = () => {};
-    const timers = new Map(), messages = [], state = { exitCode: 0 };
+    const timers = new Map(), messages = [], state = { exitCode: 0, env: {} };
     load('tests/native-smoke.cjs', { child_process: { spawn: () => child }, './native-capabilities.cjs': { isMissingAudio: (m) => isMissingAudio(m, allow) } }, {
       process: state, console: { log: (m) => messages.push(JSON.parse(m)), error() {} },
       setTimeout: (fn, ms) => { timers.set(ms, fn); return ms; }, clearTimeout: (id) => timers.delete(id)

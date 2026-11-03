@@ -1,10 +1,12 @@
-// TopNotch system helper. Compiled at startup by Windows PowerShell 5.1
+// TopNotch system helper. Precompiled to topnotch-helper.exe (scripts/build-win-helper.ps1),
+// or compiled at startup by Windows PowerShell 5.1 as a fallback
 // (C# 5: no string interpolation or null-propagation).
 // Protocol: one command per stdin line, one JSON object per stdout line.
 //   in : volume <0-100> | mute <on|off|toggle> | brightness <0-100> | seek <seconds> <appId?>
 //        stats <on|off> | fileclick <on|off> | mixer list | mixer set <pid> <0-100> | mixer mute <pid> <on|off|toggle> | get
 //   out: {"type":"volume","value":n,"muted":b} | {"type":"brightness","value":n,"supported":b}
 //        {"type":"seek","ok":b} | {"type":"privacy","camera":[..],"microphone":[..]}
+//        {"type":"media","state":{appId,title,artist,album,playing,position,duration,positionAt,art?}|null}
 //        {"type":"net","rx":n,"tx":n} | {"type":"bluetooth","devices":[{name,connected,battery}]}
 //        {"type":"ready"} | {"type":"error","message":s}
 using System;
@@ -472,7 +474,7 @@ static class Media {
     static readonly object managerLock = new object();
     static string lastTimeline = "";
 
-    static GlobalSystemMediaTransportControlsSessionManager Manager {
+    internal static GlobalSystemMediaTransportControlsSessionManager Manager {
         get {
             lock (managerLock) {
                 if (manager == null) manager = WinRt.Await(GlobalSystemMediaTransportControlsSessionManager.RequestAsync());
@@ -526,6 +528,156 @@ static class Media {
             Helper.EmitError("seek: " + e.Message);
         }
         Helper.Emit("{\"type\":\"seek\",\"ok\":" + (ok ? "true" : "false") + "}");
+    }
+}
+
+// Now playing: title, artist, play state and artwork of the session the
+// notch should show. Replaces the separate Node media worker on Windows.
+// Publishes on SMTC events (debounced) with a 2 s safety poll, and sends
+// artwork only when it changes.
+static class NowPlaying {
+    const int MaxArtBytes = 4 * 1024 * 1024;
+    static readonly AutoResetEvent wake = new AutoResetEvent(false);
+    static readonly HashSet<string> hooked = new HashSet<string>();
+    static string lastSent = "";
+    static string lastArtKey = null;
+    static int lastArtLength = -1;
+    static volatile bool artDirty;
+
+    public static void Start() {
+        var thread = new Thread(Loop);
+        thread.IsBackground = true;
+        thread.Start();
+    }
+
+    public static void Resend() { lastSent = ""; lastArtKey = null; lastArtLength = -1; wake.Set(); }
+
+    static void Poke() { wake.Set(); }
+
+    static void Hook(GlobalSystemMediaTransportControlsSessionManager manager) {
+        manager.SessionsChanged += (s, e) => Poke();
+        manager.CurrentSessionChanged += (s, e) => Poke();
+    }
+
+    static void HookSession(GlobalSystemMediaTransportControlsSession session) {
+        if (!hooked.Add((session.SourceAppUserModelId ?? "") + "#" + session.GetHashCode())) return;
+        session.MediaPropertiesChanged += (s, e) => { artDirty = true; Poke(); };
+        session.PlaybackInfoChanged += (s, e) => Poke();
+        session.TimelinePropertiesChanged += (s, e) => Poke();
+    }
+
+    static void Loop() {
+        GlobalSystemMediaTransportControlsSessionManager manager = null;
+        while (manager == null) {
+            try { manager = Media.Manager; Hook(manager); }
+            catch (Exception e) { manager = null; Helper.EmitError("media: " + e.Message); Thread.Sleep(5000); }
+        }
+        while (true) {
+            try { Publish(manager); } catch (Exception e) { Helper.EmitError("media: " + e.Message); }
+            // Debounce bursts of events; otherwise re-check every 2 s.
+            if (wake.WaitOne(2000)) Thread.Sleep(60);
+        }
+    }
+
+    class Candidate {
+        public GlobalSystemMediaTransportControlsSession Session;
+        public GlobalSystemMediaTransportControlsSessionMediaProperties Props;
+        public bool Playing;
+        public long Updated;
+    }
+
+    static void Publish(GlobalSystemMediaTransportControlsSessionManager manager) {
+        var current = manager.GetCurrentSession();
+        string currentId = current != null ? current.SourceAppUserModelId : null;
+        var list = new List<Candidate>();
+        foreach (var session in manager.GetSessions()) {
+            HookSession(session);
+            GlobalSystemMediaTransportControlsSessionMediaProperties props;
+            try { props = WinRt.Await(session.TryGetMediaPropertiesAsync()); } catch { continue; }
+            if (props == null || string.IsNullOrEmpty(props.Title)) continue;
+            var playback = session.GetPlaybackInfo();
+            var c = new Candidate();
+            c.Session = session;
+            c.Props = props;
+            c.Playing = playback != null && playback.PlaybackStatus == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing;
+            try { c.Updated = session.GetTimelineProperties().LastUpdatedTime.ToUnixTimeMilliseconds(); } catch { }
+            list.Add(c);
+        }
+        if (list.Count == 0) {
+            if (lastSent != "null") {
+                lastSent = "null"; lastArtKey = null; lastArtLength = -1;
+                Helper.Emit("{\"type\":\"media\",\"state\":null}");
+            }
+            return;
+        }
+        // Same order as the old worker: current and playing, any playing, current, newest.
+        list.Sort((a, b) => b.Updated.CompareTo(a.Updated));
+        Candidate pick = null;
+        foreach (var c in list) if (c.Playing && c.Session.SourceAppUserModelId == currentId) { pick = c; break; }
+        if (pick == null) foreach (var c in list) if (c.Playing) { pick = c; break; }
+        if (pick == null) foreach (var c in list) if (c.Session.SourceAppUserModelId == currentId) { pick = c; break; }
+        if (pick == null) pick = list[0];
+
+        var p = pick.Props;
+        string appId = pick.Session.SourceAppUserModelId ?? "";
+        string artist = !string.IsNullOrEmpty(p.Artist) ? p.Artist : (p.AlbumArtist ?? "");
+        double position = 0, duration = 0;
+        try {
+            var t = pick.Session.GetTimelineProperties();
+            position = t.Position.TotalSeconds;
+            duration = (t.EndTime - t.StartTime).TotalSeconds;
+        } catch { }
+
+        // Artwork is read only when the track changes or the app says its
+        // properties changed (thumbnails often arrive after the title).
+        string artKey = p.Thumbnail != null ? appId + "|" + p.Title + "|" + artist + "|" + (p.AlbumTitle ?? "") : "";
+        string art = null;
+        bool artChanged = false;
+        if (artKey != lastArtKey || artDirty) {
+            artDirty = false;
+            byte[] bytes = null; string mime = null;
+            if (artKey.Length > 0) bytes = ReadThumbnail(p.Thumbnail, out mime);
+            int length = bytes != null ? bytes.Length : 0;
+            if (artKey != lastArtKey || length != lastArtLength) {
+                artChanged = true;
+                art = bytes != null ? "data:" + mime + ";base64," + Convert.ToBase64String(bytes) : "";
+                lastArtKey = artKey;
+                lastArtLength = length;
+            }
+        }
+
+        string body = "\"appId\":" + Helper.Str(appId) +
+            ",\"title\":" + Helper.Str(p.Title) +
+            ",\"artist\":" + Helper.Str(artist) +
+            ",\"album\":" + Helper.Str(p.AlbumTitle ?? "") +
+            ",\"playing\":" + (pick.Playing ? "true" : "false") +
+            ",\"position\":" + position.ToString("0.###", CultureInfo.InvariantCulture) +
+            ",\"duration\":" + duration.ToString("0.###", CultureInfo.InvariantCulture);
+        string signature = body + "|" + lastArtKey + "|" + lastArtLength;
+        if (signature == lastSent && !artChanged) return;
+        lastSent = signature;
+        long now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        Helper.Emit("{\"type\":\"media\",\"state\":{" + body + ",\"positionAt\":" + now +
+            (artChanged ? ",\"art\":" + (art.Length > 0 ? Helper.Str(art) : "null") : "") + "}}");
+    }
+
+    static byte[] ReadThumbnail(Windows.Storage.Streams.IRandomAccessStreamReference reference, out string mime) {
+        mime = "image/png";
+        try {
+            var stream = WinRt.Await(reference.OpenReadAsync());
+            if (stream == null || stream.Size == 0 || stream.Size > MaxArtBytes) return null;
+            if (!string.IsNullOrEmpty(stream.ContentType) && stream.ContentType.StartsWith("image/")) mime = stream.ContentType;
+            var reader = new Windows.Storage.Streams.DataReader(stream.GetInputStreamAt(0));
+            uint read = WinRt.Await(reader.LoadAsync((uint)stream.Size));
+            var bytes = new byte[read];
+            reader.ReadBytes(bytes);
+            reader.Dispose();
+            stream.Dispose();
+            return bytes;
+        } catch (Exception e) {
+            Helper.EmitError("artwork: " + e.Message);
+            return null;
+        }
     }
 }
 
@@ -1081,6 +1233,7 @@ public static class Helper {
         try { Audio.Init(); } catch (Exception e) { EmitError("audio: " + e.Message); }
         try { Brightness.Init(); } catch (Exception e) { EmitError("brightness init: " + e.Message); }
         Media.StartTimeline();
+        NowPlaying.Start();
         FileClick.Start();
         Meter.Start();
         Privacy.Start();
@@ -1101,6 +1254,7 @@ public static class Helper {
                     case "brightness": Brightness.Request(int.Parse(parts[1], CultureInfo.InvariantCulture)); break;
                     case "seek": Media.Seek(double.Parse(parts[1], CultureInfo.InvariantCulture), parts.Length > 2 ? parts[2] : null); break;
                     case "timeline": Media.ResendTimeline(); break;
+                    case "media": NowPlaying.Resend(); break;
                     case "meter": Meter.SetEnabled(parts.Length > 1 && parts[1] == "on"); break;
                     case "fileclick":
                         var probe = line.Trim().Split(' ');

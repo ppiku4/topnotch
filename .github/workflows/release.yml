@@ -47,6 +47,9 @@ jobs:
 
       - run: npm ci
 
+      - name: Windows system helper
+        run: npm run build:win-helper
+
       - name: Build
         run: npx vite build
 

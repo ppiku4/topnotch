@@ -14,3 +14,6 @@ SMART_NOTCH_TEARDOWN.md
 
 # macOS native helper and adapter (scripts/build-mac-native.sh)
 build/mac/
+
+# Windows precompiled system helper (scripts/build-win-helper.ps1)
+build/win/

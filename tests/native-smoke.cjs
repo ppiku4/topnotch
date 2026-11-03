@@ -1,11 +1,16 @@
 const { spawn } = require('child_process');
 const path = require('path');
 const { isMissingAudio } = require('./native-capabilities.cjs');
-const child = spawn('powershell.exe', [
+const fs = require('fs');
+// The precompiled helper (npm run build:win-helper) when built, else the
+// PowerShell path; TOPNOTCH_HELPER=powershell forces the latter.
+const exe = path.join(__dirname, '../build/win/topnotch-helper.exe');
+const usePowerShell = process.env.TOPNOTCH_HELPER === 'powershell' || !fs.existsSync(exe);
+const child = usePowerShell ? spawn('powershell.exe', [
   '-NoProfile', '-NonInteractive', '-MTA', '-ExecutionPolicy', 'Bypass',
   '-File', path.join(__dirname, '../electron/system-helper.ps1'),
   '-SourcePath', path.join(__dirname, '../electron/system-helper.cs')
-], { windowsHide: true });
+], { windowsHide: true }) : spawn(exe, [], { windowsHide: true });
 let buffer = '', ready = false, timedOut = false, stopTimer;
 const types = new Set(), errors = new Set(), unavailable = new Set();
 const timeout = setTimeout(() => { timedOut = true; child.kill(); console.error('Native smoke timed out'); process.exitCode = 1; }, 25000);
@@ -31,6 +36,6 @@ child.on('exit', (code) => {
   clearTimeout(timeout);
   clearTimeout(stopTimer);
   const passed = ready && code === 0 && !timedOut && errors.size === 0;
-  console.log(JSON.stringify({ nativeSmoke: passed ? (unavailable.size ? 'passed-without-audio' : 'passed') : 'failed', exit: code, eventTypes: [...types], errors: [...errors], unavailable: [...unavailable] }));
+  console.log(JSON.stringify({ helper: usePowerShell ? 'powershell' : 'exe', nativeSmoke: passed ? (unavailable.size ? 'passed-without-audio' : 'passed') : 'failed', exit: code, eventTypes: [...types], errors: [...errors], unavailable: [...unavailable] }));
   if (!passed) process.exitCode = 1;
 });

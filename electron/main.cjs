@@ -21,6 +21,21 @@ if (!app.requestSingleInstanceLock()) {
   process.exit(0);
 }
 
+// Windows: draw on the CPU. The notch is small, so software drawing costs no
+// more CPU than the GPU path (measured with the panel open and the glow on),
+// and it saves about 90-130 MB that the GPU process holds. macOS keeps the GPU
+// for vibrancy. Opt back in with "hardwareAcceleration": true in config.json
+// or TOPNOTCH_GPU=on.
+function wantsHardwareAcceleration() {
+  if (process.platform !== 'win32' || process.env.TOPNOTCH_GPU === 'on') return true;
+  if (process.env.TOPNOTCH_GPU === 'off') return false;
+  try {
+    const saved = JSON.parse(fs.readFileSync(path.join(app.getPath('userData'), 'config.json'), 'utf8'));
+    return saved.hardwareAcceleration === true;
+  } catch (_) { return false; }
+}
+if (!wantsHardwareAcceleration()) app.disableHardwareAcceleration();
+
 // Diagnostics: %APPDATA%\topnotch\topnotch.log
 const logFile = path.join(app.getPath('userData'), 'topnotch.log');
 function log(message) {
@@ -412,19 +427,27 @@ function mediaRemotePaths() {
   return [path.join(dir, 'mediaremote-adapter.pl'), path.join(dir, 'MediaRemoteAdapter.framework')];
 }
 
+// Windows reads now playing in the system helper (one process less);
+// TOPNOTCH_MEDIA=worker brings back the separate Node worker.
+const MEDIA_IN_HELPER = !MAC && process.env.TOPNOTCH_MEDIA !== 'worker';
+
+function onMediaState(state) {
+  // Artwork is only sent when it changes; keep the last one for reloads.
+  const art = state && state.art === undefined && lastMedia ? lastMedia.art : state?.art;
+  lastMedia = state ? withTimeline({ ...state, art }) : null;
+  send('media-state', lastMedia);
+  updateLyrics();
+}
+
 function startMediaWorker() {
+  if (MEDIA_IN_HELPER) return;
   const [script, args] = MAC ? ['media-worker-mac.cjs', mediaRemotePaths()] : ['media-worker.cjs', []];
   mediaWorker = fork(path.join(__dirname, script), args, {
     env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
     stdio: ['ignore', 'inherit', 'inherit', 'ipc']
   });
   mediaWorker.on('message', (msg) => {
-    if (!msg || msg.type !== 'media') return;
-    // Artwork is only sent when it changes; keep the last one for reloads.
-    const art = msg.state && msg.state.art === undefined && lastMedia ? lastMedia.art : msg.state?.art;
-    lastMedia = msg.state ? withTimeline({ ...msg.state, art }) : null;
-    send('media-state', lastMedia);
-    updateLyrics();
+    if (msg && msg.type === 'media') onMediaState(msg.state);
   });
   mediaWorker.on('exit', (code, signal) => {
     log(`media worker exit ${code} ${signal}`);
@@ -507,6 +530,8 @@ function onHelperEvent(msg) {
     const users = [...new Set([...msg.camera, ...msg.microphone])];
     lastPrivacy = { camera: msg.camera, microphone: msg.microphone, call: users.find((a) => CALL_APPS.test(a)) || null };
     send('privacy', lastPrivacy);
+  } else if (msg.type === 'media') {
+    if (MEDIA_IN_HELPER) onMediaState(msg.state);
   } else if (msg.type === 'timeline') {
     timelines = new Map(msg.sessions.map((s) => [s.appId, s]));
     if (lastMedia) {
