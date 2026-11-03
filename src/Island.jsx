@@ -12,6 +12,7 @@ import { BluetoothTab, DashboardTab, MixerTab, MusicTab } from './Dashboard.jsx'
 import { useHoverPassthrough } from './useHoverPassthrough.js';
 import { AnimationVisibility, setBeatSensitivity, useBeatVars } from './beat.js';
 import { useMedia } from './useMedia.js';
+import { EdgeProgress } from './EdgeProgress.jsx';
 import {
   formatCountdown, playChime, useActivities, useArtColors, useClock, useBattery, useBatteryEvents, useBluetoothDevices, useClipboard,
   useConfig, useDock, useDragNear, useLyrics, useMixer, usePrivacy, useShelf, useStats, useSystemLevels, useTimer, useWeather
@@ -133,9 +134,18 @@ export default function Island() {
   }), [activities.push]);
 
   // File wheel jobs: stay up while running, linger a few seconds when done.
+  const [jobs, setJobs] = useState({}); // running conversions: id -> progress 0..1
   useEffect(() => bridge.onConvertJob((job) => {
     activities.push('convert', job, job.status === 'running' ? 30 * 60 * 1000 : job.status === 'done' ? 7000 : 9000);
+    setJobs((current) => {
+      const next = { ...current };
+      if (job.status === 'running') next[job.id] = Number(job.progress) || 0; else delete next[job.id];
+      return next;
+    });
   }), [activities.push]);
+  // App update download, 0..1 while downloading.
+  const [updateProgress, setUpdateProgress] = useState(null);
+  useEffect(() => bridge.onUpdateProgress((p) => setUpdateProgress(p?.phase === 'downloading' ? (Number(p.percent) || 0) / 100 : null)), []);
 
   useBatteryEvents(features.charging, (event) => activities.push('battery', event, 3500));
 
@@ -212,6 +222,26 @@ export default function Island() {
   // pill keeps the music and the timer moves into its own round bubble.
   const split = state === 'compact' && !!media?.playing && timerRunning && !privacy.call;
   const pillTimer = timerRunning && !split ? timerState : null;
+
+  // Edge progress: whatever has progress now, most specific first. The timer
+  // only when it isn't in its own bubble (that bubble has its own ring).
+  const progressRef = useRef(null);
+  progressRef.current = { jobs, updateProgress, timer: pillTimer?.timer || null, media };
+  const readProgress = useCallback(() => {
+    const { jobs, updateProgress, timer, media } = progressRef.current;
+    const running = Object.values(jobs);
+    if (running.length) return running.reduce((sum, p) => sum + p, 0) / running.length;
+    if (updateProgress != null) return updateProgress;
+    if (timer && timer.total > 0) {
+      const remaining = timer.paused ? timer.remaining : timer.endsAt - Date.now();
+      return 1 - Math.max(0, remaining) / timer.total;
+    }
+    if (media?.playing && media.duration > 0) {
+      const position = (media.position || 0) + Math.max(0, (Date.now() - (media.positionAt || Date.now())) / 1000);
+      return Math.min(1, position / media.duration);
+    }
+    return null;
+  }, []);
   const compactInfo = state === 'compact' && !pillLyrics && media?.playing && features.pillInfo !== false && !pillTimer && !privacy.call
     ? { weather: features.weather ? weather : null } : null;
   // On the left/right edges the resting states are a vertical strip; the
@@ -390,6 +420,9 @@ export default function Island() {
             <Compact key="compact" media={media} lyrics={pillLyrics} onLyricsWidth={onPillWidth} info={compactInfo} onInfoWidth={onInfoWidth} config={config} privacy={features.privacy ? privacy : null} timerState={pillTimer} />
           )}
         </AnimatePresence>
+        {features.edgeProgress !== false && !(covered && !panelOpen) && state !== 'idle' && (
+          <EdgeProgress read={readProgress} edge={floatGlass ? null : edge} />
+        )}
       </motion.div>
       <AnimatePresence>
         {split && (

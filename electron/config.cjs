@@ -32,7 +32,9 @@ const DEFAULTS = {
   features: {
     lyrics: true,
     pillLyrics: true,
+    liveCaptions: true,   // Windows: Live Captions when a track has no lyrics
     pillInfo: true,
+    edgeProgress: true,   // progress line around the island's edge
     weather: true,
     privacy: true,
     clipboard: true,

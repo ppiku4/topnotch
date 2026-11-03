@@ -3,10 +3,11 @@
 // (C# 5: no string interpolation or null-propagation).
 // Protocol: one command per stdin line, one JSON object per stdout line.
 //   in : volume <0-100> | mute <on|off|toggle> | brightness <0-100> | seek <seconds> <appId?>
-//        stats <on|off> | fileclick <on|off> | mixer list | mixer set <pid> <0-100> | mixer mute <pid> <on|off|toggle> | get
+//        stats <on|off> | captions <on|off> | fileclick <on|off> | mixer list | mixer set <pid> <0-100> | mixer mute <pid> <on|off|toggle> | get
 //   out: {"type":"volume","value":n,"muted":b} | {"type":"brightness","value":n,"supported":b}
 //        {"type":"seek","ok":b} | {"type":"privacy","camera":[..],"microphone":[..]}
 //        {"type":"media","state":{appId,title,artist,album,playing,position,duration,positionAt,art?}|null}
+//        {"type":"captions","running":b,"text":s}
 //        {"type":"net","rx":n,"tx":n} | {"type":"bluetooth","devices":[{name,connected,battery}]}
 //        {"type":"ready"} | {"type":"error","message":s}
 using System;
@@ -681,6 +682,88 @@ static class NowPlaying {
     }
 }
 
+// Windows 11 Live Captions (Win + Ctrl + L): reads the caption text from its
+// window through UI Automation while enabled. Used as a lyrics fallback for
+// tracks and videos with no synced lyrics. Reads only; never starts it.
+static class LiveCaptions {
+    static volatile bool enabled;
+    static Thread thread;
+    static string lastText = null;
+    static bool lastRunning = false;
+    static System.Windows.Automation.AutomationElement window;
+    static System.Windows.Automation.AutomationElement textBlock;
+
+    public static void SetEnabled(bool on) {
+        enabled = on;
+        if (!on) { lastText = null; lastRunning = false; window = null; textBlock = null; return; }
+        if (thread != null && thread.IsAlive) return;
+        thread = new Thread(Loop);
+        thread.IsBackground = true;
+        // UI Automation's managed client fails with E_UNEXPECTED on MTA threads.
+        thread.SetApartmentState(ApartmentState.STA);
+        thread.Start();
+    }
+
+    static void Loop() {
+        int sinceSearch = 0;
+        while (enabled) {
+            try { Read(ref sinceSearch); }
+            catch (Exception e) { window = null; textBlock = null; Helper.EmitError("captions: " + e.Message); Thread.Sleep(2000); }
+            Thread.Sleep(250);
+        }
+    }
+
+    static void Read(ref int sinceSearch) {
+        if (textBlock == null) {
+            // Looking for the window walks the desktop's top level; once a second is plenty.
+            if (sinceSearch-- > 0) return;
+            sinceSearch = 4;
+            var root = System.Windows.Automation.AutomationElement.RootElement;
+            window = root.FindFirst(System.Windows.Automation.TreeScope.Children,
+                new System.Windows.Automation.PropertyCondition(System.Windows.Automation.AutomationElement.ClassNameProperty, "LiveCaptionsDesktopWindow"));
+            if (window == null) { Report(false, ""); return; }
+            textBlock = FindCaptions(window);
+            // Running, but not captioning yet (first-run welcome screen, or starting up).
+            if (textBlock == null) { Report(true, ""); return; }
+        }
+        string text;
+        try { text = textBlock.Current.Name ?? ""; }
+        catch (System.Windows.Automation.ElementNotAvailableException) { window = null; textBlock = null; Report(false, ""); return; }
+        Report(true, text);
+    }
+
+    // A descendant search can fail inside the XAML island (E_UNEXPECTED), so
+    // fall back to walking the tree, skipping any branch that throws.
+    static System.Windows.Automation.AutomationElement FindCaptions(System.Windows.Automation.AutomationElement root) {
+        try {
+            return root.FindFirst(System.Windows.Automation.TreeScope.Descendants,
+                new System.Windows.Automation.PropertyCondition(System.Windows.Automation.AutomationElement.AutomationIdProperty, "CaptionsTextBlock"));
+        } catch (Exception) { }
+        return Walk(root, 0);
+    }
+
+    static System.Windows.Automation.AutomationElement Walk(System.Windows.Automation.AutomationElement element, int depth) {
+        if (depth > 12) return null;
+        var walker = System.Windows.Automation.TreeWalker.ControlViewWalker;
+        System.Windows.Automation.AutomationElement child = null;
+        try { child = walker.GetFirstChild(element); } catch (Exception) { return null; }
+        while (child != null) {
+            try { if (child.Current.AutomationId == "CaptionsTextBlock") return child; } catch (Exception) { }
+            var found = Walk(child, depth + 1);
+            if (found != null) return found;
+            try { child = walker.GetNextSibling(child); } catch (Exception) { return null; }
+        }
+        return null;
+    }
+
+    static void Report(bool running, string text) {
+        if (running == lastRunning && text == lastText) return;
+        lastRunning = running;
+        lastText = text;
+        Helper.Emit("{\"type\":\"captions\",\"running\":" + (running ? "true" : "false") + ",\"text\":" + Helper.Str(text) + "}");
+    }
+}
+
 // Camera/microphone use, from the same consent store the Windows privacy
 // indicator reads: an app is using the device while LastUsedTimeStop is 0.
 static class Privacy {
@@ -1262,6 +1345,7 @@ public static class Helper {
                         else FileClick.SetEnabled(probe.Length > 1 && probe[1] == "on", probe.Length > 2 ? probe[2] : null);
                         break;
                     case "stats": NetStats.SetEnabled(parts.Length > 1 && parts[1] == "on"); break;
+                    case "captions": LiveCaptions.SetEnabled(parts.Length > 1 && parts[1] == "on"); break;
                     case "mixer": {
                         // mixer list | mixer set <pid> <0-100> | mixer mute <pid> <on|off|toggle>
                         var args = line.Trim().Split(' ');

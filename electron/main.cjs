@@ -10,6 +10,7 @@ const { createConfig, sanitizePatch } = require('./config.cjs');
 const { createClipboardHistory } = require('./clipboard.cjs');
 const { createShelf } = require('./shelf.cjs');
 const { fetchLyrics } = require('./lyrics.cjs');
+const { createCaptionLines } = require('./live-captions.cjs');
 const { createWeather } = require('./weather.cjs');
 const { createSensors } = require('./sensors.cjs');
 const { checkForUpdate, createInstaller } = require('./updater.cjs');
@@ -486,9 +487,46 @@ function shiftLines(lines, offset) {
   }));
 }
 function publishLyrics() {
-  const offset = lyricsOffset(lyricsKey);
-  lastLyrics = { key: lyricsKey, lines: shiftLines(rawLyricLines, offset), offset };
+  if (captions.key && captions.key === lyricsKey) {
+    // Live Captions lines are stamped with the real position; no offset.
+    lastLyrics = { key: lyricsKey, lines: captions.lines.lines(), offset: 0, source: 'captions', captions: captions.running ? 'on' : 'off' };
+  } else {
+    const offset = lyricsOffset(lyricsKey);
+    lastLyrics = { key: lyricsKey, lines: shiftLines(rawLyricLines, offset), offset };
+  }
   send('lyrics', lastLyrics);
+}
+
+// ── Live Captions fallback (Windows 11) ───────────────────────────────────
+// When a track or video has no synced lyrics, show what Windows Live
+// Captions hears instead. Only reads Live Captions while such a track is on.
+const captions = { key: null, running: false, lines: createCaptionLines() };
+function startCaptions(key) {
+  if (MAC || !features().liveCaptions) return;
+  captions.key = key;
+  captions.running = false;
+  captions.lines.reset();
+  systemService?.setCaptions(true);
+}
+function stopCaptions() {
+  if (!captions.key) return;
+  captions.key = null;
+  captions.lines.reset();
+  systemService?.setCaptions(false);
+}
+function mediaPosition() {
+  if (!lastMedia) return 0;
+  const since = lastMedia.playing && lastMedia.positionAt ? (Date.now() - lastMedia.positionAt) / 1000 : 0;
+  return Math.max(0, (lastMedia.position || 0) + since);
+}
+function onCaptions(msg) {
+  if (!captions.key || captions.key !== lyricsKey) return;
+  const running = !!msg.running;
+  const changed = captions.lines.update(msg.text, mediaPosition());
+  if (changed || running !== captions.running) {
+    captions.running = running;
+    publishLyrics();
+  }
 }
 
 function updateLyrics() {
@@ -496,6 +534,7 @@ function updateLyrics() {
   if (key === lyricsKey) return;
   lyricsKey = key;
   rawLyricLines = [];
+  stopCaptions();
   publishLyrics();
   if (!key || !features().lyrics) return;
   const { title, artist, album, duration } = lastMedia;
@@ -504,6 +543,7 @@ function updateLyrics() {
       if (lyricsKey !== key) return;
       log(`lyrics: ${lines.length} lines for "${title}"${id ? ` (lrclib ${id}, ${lyricDuration}s vs ${Math.round(duration)}s${wordSync ? ', word-synced' : ''})` : ''}`);
       rawLyricLines = lines;
+      if (!lines.length) startCaptions(key);
       publishLyrics();
     })
     .catch((error) => {
@@ -532,6 +572,8 @@ function onHelperEvent(msg) {
     send('privacy', lastPrivacy);
   } else if (msg.type === 'media') {
     if (MEDIA_IN_HELPER) onMediaState(msg.state);
+  } else if (msg.type === 'captions') {
+    onCaptions(msg);
   } else if (msg.type === 'timeline') {
     timelines = new Map(msg.sessions.map((s) => [s.appId, s]));
     if (lastMedia) {
@@ -1371,6 +1413,11 @@ app.whenReady().then(() => {
     if (current.displayId !== previous.displayId || current.dockEdge !== previous.dockEdge || current.dockOffset !== previous.dockOffset) positionNotch();
     if (current.features.fileWheel !== previous.features.fileWheel) applyFileWheel();
     if (current.features.lyrics && !previous.features.lyrics) { lyricsKey = null; updateLyrics(); }
+    if (current.features.liveCaptions !== previous.features.liveCaptions) {
+      if (current.features.liveCaptions && lyricsKey && !rawLyricLines.length) startCaptions(lyricsKey);
+      else if (!current.features.liveCaptions) stopCaptions();
+      publishLyrics();
+    }
     if (current.weatherCity !== previous.weatherCity || current.temperatureUnit !== previous.temperatureUnit) weather.reset();
     previous = current;
     broadcast('config', current);

@@ -361,6 +361,8 @@ const FILES = IS_MAC ? 'Finder' : 'Explorer';
 const WIDGETS = [
   ['lyrics', LyricsIcon, 'Synced lyrics', 'Word-by-word lyrics in the Music tab (lrclib.net).'],
   ['pillLyrics', MusicIcon, 'Lyrics in the pill', 'Show the current line on the collapsed notch while music plays.'],
+  ...(IS_MAC ? [] : [['liveCaptions', LyricsIcon, 'Live Captions when no lyrics', 'For songs and videos without synced lyrics, show what Windows Live Captions hears. Turn Live Captions on with Win + Ctrl + L.']]),
+  ['edgeProgress', GlowIcon, 'Progress around the edge', 'A thin accent line around the notch fills up with the song, the focus timer, or a file conversion.'],
   ['pillInfo', ClockIcon, 'Day, time & weather in the pill', 'Shown on the collapsed notch while nothing is playing.'],
   ['weather', WeatherIcon, 'Weather', 'Current temperature and conditions (Open-Meteo).'],
   ['privacy', CameraIcon, 'Camera & mic indicator', 'Green and orange dots, plus the call app, while a device is in use.'],
@@ -378,7 +380,7 @@ function Widgets({ config }) {
     <>
       <Group title="Show in the notch">
         {WIDGETS.map(([key, icon, title, sub]) => (
-          <Row key={key} icon={icon} title={title} sub={sub} disabled={key === 'pillLyrics' && !config.features.lyrics}>
+          <Row key={key} icon={icon} title={title} sub={sub} disabled={(key === 'pillLyrics' || key === 'liveCaptions') && !config.features.lyrics}>
             <Toggle checked={config.features[key] !== false} onChange={setFeature(key)} />
           </Row>
         ))}

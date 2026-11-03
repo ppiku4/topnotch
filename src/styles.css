@@ -48,6 +48,25 @@ button { font: inherit; color: inherit; }
   justify-content: center;
   transition: box-shadow 0.6s;
 }
+/* Progress along the island's edge, docked side left out (EdgeProgress.jsx). */
+.edge-progress { position: absolute; inset: 0; pointer-events: none; z-index: 5; overflow: visible; }
+.edge-progress path { fill: none; stroke-width: 0.75; stroke-linecap: butt; vector-effect: non-scaling-stroke; }
+.edge-progress-track { stroke: color-mix(in srgb, var(--accent) 9%, transparent); }
+/* A wider, blurred copy underneath makes the hairline glow. */
+.edge-progress-glow {
+  stroke: var(--accent);
+  stroke-width: 4 !important;
+  opacity: 0.6;
+  filter: blur(2px);
+}
+.edge-progress-fill {
+  stroke: color-mix(in srgb, var(--accent) 70%, white);
+  filter: drop-shadow(0 0 1.5px var(--accent));
+}
+.edge-progress-fill.is-taper { filter: none; }
+.edge-progress-dot { fill: color-mix(in srgb, var(--accent) 60%, white); }
+.edge-progress-dot-glow { fill: var(--accent); opacity: 0.55; filter: blur(2px); }
+
 .island.is-glowing {
   box-shadow: 0 6px 26px -4px color-mix(in srgb, var(--accent) 65%, transparent), 0 10px 30px rgba(0, 0, 0, 0.35);
 }

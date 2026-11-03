@@ -137,6 +137,12 @@ function LyricsTiming({ offset = 0 }) {
   );
 }
 
+// Live Captions stands in when a track has no synced lyrics (Windows).
+function lyricsPlaceholder(lyrics) {
+  if (lyrics?.source !== 'captions') return 'No synced lyrics for this track';
+  return lyrics.captions === 'on' ? 'Listening with Live Captions…' : 'No synced lyrics. Turn on Live Captions (Win + Ctrl + L) to see what’s said.';
+}
+
 export function MusicTab({ media, lyrics, levels, hold, showLyrics }) {
   const seek = useSeek(media);
   if (!media) return <div className="tab tab-empty"><span className="empty-icon"><MusicIcon /></span>Nothing playing</div>;
@@ -159,7 +165,7 @@ export function MusicTab({ media, lyrics, levels, hold, showLyrics }) {
         </motion.div>
         {lines.length > 0
           ? <LyricsList lines={lines} media={media} seekedTo={seek.seekedTo} onSeek={seek.seekTo} />
-          : <div className="lyrics-placeholder">{showLyrics ? 'No synced lyrics for this track' : ''}</div>}
+          : <div className="lyrics-placeholder">{showLyrics ? lyricsPlaceholder(lyrics) : ''}</div>}
         <MediaTimeline media={media} seek={seek} hold={hold} />
         <div className="music-bottom">
           <MediaControls media={media} />

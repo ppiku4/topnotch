@@ -12,11 +12,16 @@ function cleanTrack(title, artist) {
   let name = String(title || '')
     .replace(/\s*[([{【][^)\]}】]*[)\]}】]/g, '')       // any bracketed suffix
     .replace(/\s*\|.*$/, '')                           // "Song | Official Video"
+    .replace(/\s*#\S+/g, '')                           // "#shorts #music"
+    .replace(/\s+(official\s+)?(music\s+|lyric\s+)?(video|audio|visuali[sz]er)\s*$/i, '')
     .trim();
   let who = String(artist || '').replace(/(VEVO|\s*-\s*Topic|Official|Music)$/i, '').trim();
   const dash = name.match(/^(.+?)\s+[-–—]\s+(.+)$/);
   if (dash) { who = dash[1].trim(); name = dash[2].trim(); }
-  name = name.replace(/\s+(ft\.?|feat\.?|featuring)\s.+$/i, '').replace(/["“”]/g, '').trim();
+  // "twenty one pilots: Stressed Out": a short name before a colon is the artist.
+  const colon = !dash && name.match(/^([^:]{2,40}):\s+(.+)$/);
+  if (colon && colon[1].trim().split(/\s+/).length <= 5) { who = colon[1].trim(); name = colon[2].trim(); }
+  name = name.replace(/\s+(ft\.?|feat\.?|featuring|starring|with|w\/)\s.+$/i, '').replace(/["“”]/g, '').trim();
   who = who.replace(/\s*(,|&|\bx\b|ft\.?|feat\.?).*$/i, '').trim();
   return { name, artist: who };
 }
@@ -100,6 +105,10 @@ function getJson(url) {
   return result;
 }
 
+// How far a candidate's length may be from what's playing: an intro or outro
+// of a few seconds is common, a different edit is not.
+const maxDurationGap = (duration) => Math.max(8, duration * 0.06);
+
 const norm = (v) => String(v || '').toLowerCase().replace(/\([^)]*\)|\[[^\]]*\]/g, '').replace(/[^a-z0-9]/g, '');
 
 // lrclib holds several crowd-synced copies of most songs: album cuts, radio
@@ -121,8 +130,13 @@ function pickBest(candidates, { name, who, rawTitle, duration }) {
     if (!sameRaw && !(track === name || track.includes(name) || name.includes(track))) continue;
     const artist = norm(r.artistName);
     const sameArtist = !who || artist.includes(who) || who.includes(artist) || raw.includes(artist);
-    let score = sameArtist ? 0 : 100;
-    if (duration > 0) score += Math.abs((r.duration || 0) - duration) * 4;
+    // A different artist or a cut of very different length is a different
+    // song or version: showing nothing beats showing wrong or shifted lines.
+    if (!sameArtist && !sameRaw) continue;
+    const off = duration > 0 && r.duration > 0 ? Math.abs(r.duration - duration) : 0;
+    if (off > maxDurationGap(duration)) continue;
+    let score = 0;
+    if (duration > 0) score += off * 4;
     if (sameRaw) score -= 3;
     if (r.hasWordSync) score -= 2;
     if (/\b(live|remix|acoustic|sped|slowed|nightcore|karaoke|instrumental|cover)\b/i.test(r.trackName + ' ' + r.albumName)
@@ -137,6 +151,8 @@ function pickBest(candidates, { name, who, rawTitle, duration }) {
 async function fetchLrclib({ title, artist, album, duration }) {
   const track = cleanTrack(title, artist);
   if (!track.name) return { lines: [] };
+  // Shorter than any song: a notification sound, a browser tab, a clip.
+  if (duration > 0 && duration < 30) return { lines: [] };
   let requests = 0;
   let failures = 0;
   const attempt = async (url) => {
@@ -162,6 +178,7 @@ async function fetchLrclib({ title, artist, album, duration }) {
     duration: duration >= 1 && duration <= 3600 ? String(Math.round(duration)) : ''
   }));
   if (found?.syncedLyrics && duration > 0 && Math.abs((found.duration || 0) - duration) <= 1) return toResult(found);
+  // The exact lookup ignores the artist check below; vet it like the rest.
 
   const byName = await attempt('https://lrclib.net/api/search?' + params({ q: `${track.artist} ${track.name}` }));
   // Videos are often stored under their full title; worth a look only when

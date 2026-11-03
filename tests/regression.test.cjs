@@ -310,3 +310,39 @@ test('restart smoke requires second-generation stats and either peaks or fresh m
     assert.equal(run(options).code, 1);
   }
 });
+
+test('lyrics matching splits messy titles and rejects other artists and other cuts', () => {
+  const { cleanTrack, pickBest } = require('../electron/lyrics.cjs');
+  assert.deepEqual(cleanTrack('twenty one pilots: Stressed Out [OFFICIAL VIDEO]', 'Fueled By Ramen'), { name: 'Stressed Out', artist: 'twenty one pilots' });
+  assert.deepEqual(cleanTrack('GENER8ION - STORM starring Yung Lean', 'GENER8ION'), { name: 'STORM', artist: 'GENER8ION' });
+  assert.equal(cleanTrack('Paradise #shorts #music', 'Coldplay').name, 'Paradise');
+  assert.equal(cleanTrack('Coldplay - Paradise Official Music Video', '').name, 'Paradise');
+  const norm = (v) => v.toLowerCase().replace(/[^a-z0-9]/g, '');
+  const record = (id, trackName, artistName, duration) => ({ id, trackName, artistName, albumName: '', duration, syncedLyrics: '[00:01.00] x' });
+  const query = { name: norm('Paradise'), who: norm('Coldplay'), rawTitle: 'Coldplay - Paradise', duration: 260 };
+  // Another artist's song of the same name is never picked.
+  assert.equal(pickBest([record(1, 'Paradise', 'Someone Else', 260)], query), null);
+  // A much longer cut would shift every line: rejected.
+  assert.equal(pickBest([record(2, 'Paradise', 'Coldplay', 320)], query), null);
+  // A few seconds of intro is fine, and the closest length wins.
+  assert.equal(pickBest([record(3, 'Paradise', 'Coldplay', 266), record(4, 'Paradise', 'Coldplay', 261)], query).id, 4);
+});
+
+test('live captions become lyric lines stamped where each line started', () => {
+  const { createCaptionLines } = require('../electron/live-captions.cjs');
+  const c = createCaptionLines();
+  assert.equal(c.update('', 0), false);
+  c.update('so today we', 1);
+  c.update('so today we are going to build\nsomething', 4);
+  c.update('so today we are going to build a chair\nsomething really cool', 6);
+  c.update('something really cool with wood\nand the first step', 9);
+  const lines = c.lines();
+  assert.deepEqual(lines.map((l) => [l.time, l.text]), [[1, 'so today we are going to build a chair'], [4, 'something really cool with wood'], [9, 'and the first step']]);
+  // Words are already spoken when shown, so they're all lit at the line's start.
+  assert.ok(lines[0].words.every((w) => w.time === 1 && w.end > w.time));
+  // After a seek back, a new line never lands before the one above it.
+  c.update('a brand new sentence', 2);
+  assert.ok(c.lines().at(-1).time > 9);
+  c.reset();
+  assert.equal(c.lines().length, 0);
+});

@@ -12,7 +12,7 @@ function createSystemService({ onLevels, onEvent = () => {}, log = console.log }
   let stopped = false;
   let restartDelay = 1000;
   let restartTimer = null;
-  const subscriptions = { stats: false, meter: false, fileclick: 'fileclick off' };
+  const subscriptions = { stats: false, meter: false, captions: false, fileclick: 'fileclick off' };
 
   function spawnHelper() {
     if (process.platform === 'darwin') {
@@ -64,6 +64,7 @@ function createSystemService({ onLevels, onEvent = () => {}, log = console.log }
       restartDelay = 1000;
       command(subscriptions.stats ? 'stats on' : 'stats off');
       command(subscriptions.meter ? 'meter on' : 'meter off');
+      if (subscriptions.captions) command('captions on');
       command(subscriptions.fileclick);
       onEvent(msg);
       return;
@@ -79,7 +80,7 @@ function createSystemService({ onLevels, onEvent = () => {}, log = console.log }
       levels.brightness = msg.supported ? msg.value : null;
       levels.brightnessSupported = msg.supported;
       onLevels({ ...levels }, changed ? 'brightness' : null);
-    } else if (msg.type === 'privacy' || msg.type === 'net' || msg.type === 'bluetooth' || msg.type === 'timeline' || msg.type === 'media' || msg.type === 'mixer' || msg.type === 'peak' || msg.type === 'file-click' || msg.type === 'file-drag') {
+    } else if (msg.type === 'privacy' || msg.type === 'net' || msg.type === 'bluetooth' || msg.type === 'timeline' || msg.type === 'media' || msg.type === 'captions' || msg.type === 'mixer' || msg.type === 'peak' || msg.type === 'file-click' || msg.type === 'file-drag') {
       onEvent(msg);
     }
   }
@@ -101,6 +102,7 @@ function createSystemService({ onLevels, onEvent = () => {}, log = console.log }
     setStats: (on) => { subscriptions.stats = !!on; command(on ? 'stats on' : 'stats off'); },
     listMixer: () => command('mixer list'),
     resendTimeline: () => command('timeline'),
+    setCaptions: (on) => { if (subscriptions.captions === !!on) return; subscriptions.captions = !!on; command(on ? 'captions on' : 'captions off'); },
     setMeter: (on) => { subscriptions.meter = !!on; command(on ? 'meter on' : 'meter off'); },
     setFileClick: (on, exts = []) => { subscriptions.fileclick = on ? `fileclick on ${exts.filter((e) => /^[a-z0-9]+$/.test(e)).join(',')}` : 'fileclick off'; command(subscriptions.fileclick); },
     setAppVolume: (pid, value) => command(`mixer set ${pid} ${clampPercent(value)}`),
